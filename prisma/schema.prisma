@@ -38,3 +38,48 @@ model ProcessedMessage {
 
   @@map("processed_messages")
 }
+
+enum BudgetStatus {
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum BudgetLineKind {
+  SERVICE
+  ITEM
+}
+
+// One budget per service order. Customer contact and prices are copies of what
+// the OS Service sent: this service never reads the OS database.
+model Budget {
+  id             String       @id @default(uuid()) @db.Uuid
+  serviceOrderId String       @unique @map("service_order_id") @db.Uuid
+  customerId     String       @map("customer_id") @db.Uuid
+  customerName   String       @map("customer_name")
+  customerEmail  String       @map("customer_email")
+  total          Decimal      @db.Decimal(10, 2)
+  status         BudgetStatus @default(PENDING_APPROVAL)
+  version        Int          @default(0)
+  decidedAt      DateTime?    @map("decided_at")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  lines          BudgetLine[]
+
+  @@map("budgets")
+}
+
+model BudgetLine {
+  id          String         @id @default(uuid()) @db.Uuid
+  budgetId    String         @map("budget_id") @db.Uuid
+  kind        BudgetLineKind
+  referenceId String         @map("reference_id") @db.Uuid
+  description String
+  unitPrice   Decimal        @map("unit_price") @db.Decimal(10, 2)
+  quantity    Int
+  budget      Budget         @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+
+  @@index([budgetId])
+  @@map("budget_lines")
+}

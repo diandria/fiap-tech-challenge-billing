@@ -11,10 +11,13 @@ import { readQueueConfig, QueueConfig } from './frameworks/messaging/queueConfig
 import { OutboxRelay } from './frameworks/messaging/OutboxRelay';
 import { SqsQueuePoller } from './frameworks/messaging/SqsQueuePoller';
 import { PrometheusIntegrationFailures } from './frameworks/metrics/PrometheusIntegrationFailures';
+import { AsyncLocalStorageTraceContext } from './frameworks/logging/AsyncLocalStorageTraceContext';
+import { PrismaUnitOfWork } from './adapters/gateways/PrismaUnitOfWork';
 import { PrismaOutboxStore } from './adapters/gateways/PrismaOutboxStore';
 import { SqsMessageSender } from './adapters/messaging/SqsMessageSender';
 import { BillingCommandHandler } from './adapters/messaging/BillingCommandHandler';
 import { PublishPendingMessagesUseCase } from './use-cases/messaging/PublishPendingMessagesUseCase';
+import { GenerateBudgetUseCase } from './use-cases/budgets/GenerateBudgetUseCase';
 
 const PORT = process.env.PORT ?? 3000;
 
@@ -26,12 +29,13 @@ function startMessaging(queues: QueueConfig): Messaging {
   const sqs = new SQSClient({});
   const sender = new SqsMessageSender(sqs, queues.destinations, new PrometheusIntegrationFailures());
   const relay = new OutboxRelay(new PublishPendingMessagesUseCase(new PrismaOutboxStore(prisma), sender), logger);
-  const poller = new SqsQueuePoller(
-    sqs,
-    { name: 'billing-commands', url: queues.billingCommands },
-    new BillingCommandHandler({}),
-    logger,
-  );
+
+  const unitOfWork = new PrismaUnitOfWork(prisma, new AsyncLocalStorageTraceContext());
+  const generateBudget = new GenerateBudgetUseCase(unitOfWork);
+  const commands = new BillingCommandHandler({
+    GenerateBudget: (command) => generateBudget.execute(command),
+  });
+  const poller = new SqsQueuePoller(sqs, { name: 'billing-commands', url: queues.billingCommands }, commands, logger);
 
   relay.start();
   poller.start();
