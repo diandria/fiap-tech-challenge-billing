@@ -3,9 +3,16 @@ import { MercadoPagoCredentials } from '../../adapters/payments/MercadoPagoToken
 export interface MercadoPagoConfig {
   credentials: MercadoPagoCredentials;
   notificationUrl: string;
+  /** Signs every notification; shown in the application's webhook settings. */
+  webhookSecret: string;
 }
 
-const VARIABLES = ['MERCADO_PAGO_CLIENT_ID', 'MERCADO_PAGO_CLIENT_SECRET', 'MERCADO_PAGO_NOTIFICATION_URL'] as const;
+const VARIABLES = [
+  'MERCADO_PAGO_CLIENT_ID',
+  'MERCADO_PAGO_CLIENT_SECRET',
+  'MERCADO_PAGO_NOTIFICATION_URL',
+  'MERCADO_PAGO_WEBHOOK_SECRET',
+] as const;
 
 /**
  * Reads the Mercado Pago configuration. None set means there is no payment
@@ -25,5 +32,6 @@ export function readMercadoPagoConfig(env: Record<string, string | undefined> = 
       clientSecret: env.MERCADO_PAGO_CLIENT_SECRET as string,
     },
     notificationUrl: env.MERCADO_PAGO_NOTIFICATION_URL as string,
+    webhookSecret: env.MERCADO_PAGO_WEBHOOK_SECRET as string,
   };
 }

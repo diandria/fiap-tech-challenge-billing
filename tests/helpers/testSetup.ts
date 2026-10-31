@@ -2,12 +2,16 @@ import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers
 import { execSync } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
 import { Application } from 'express';
-import { createApp } from '../../src/app';
+import { createApp, AppRoutes } from '../../src/app';
 import { databaseReadiness } from '../../src/frameworks/database/readinessProbe';
 import { budgetRoutes } from '../../src/frameworks/http/routes/budgetRoutes';
 import { BudgetController } from '../../src/adapters/controllers/BudgetController';
 import { PostgresBudgetRepository } from '../../src/adapters/gateways/PostgresBudgetRepository';
 import { PostgresPaymentRepository } from '../../src/adapters/gateways/PostgresPaymentRepository';
+import { paymentNotificationRoutes } from '../../src/frameworks/http/routes/paymentNotificationRoutes';
+import { PaymentNotificationController } from '../../src/adapters/controllers/PaymentNotificationController';
+import { ConfirmPaymentUseCase } from '../../src/use-cases/payments/ConfirmPaymentUseCase';
+import { IPaymentGateway } from '../../src/use-cases/ports/IPaymentGateway';
 import { PrismaUnitOfWork } from '../../src/adapters/gateways/PrismaUnitOfWork';
 import { AsyncLocalStorageTraceContext } from '../../src/frameworks/logging/AsyncLocalStorageTraceContext';
 import { GetBudgetUseCase } from '../../src/use-cases/budgets/GetBudgetUseCase';
@@ -38,11 +42,22 @@ export async function clearTestDB(): Promise<void> {
   await prisma.$executeRawUnsafe('TRUNCATE TABLE payments, budget_lines, budgets, outbox_messages, processed_messages');
 }
 
-export function createTestApp(): Application {
+export const TEST_WEBHOOK_SECRET = 'test-webhook-secret';
+
+const silentLogger = { warn: () => undefined, error: () => undefined };
+
+/** The app wired as in production; the payment routes exist only when a gateway is given. */
+export function createTestApp(paymentGateway?: IPaymentGateway): Application {
   const unitOfWork = new PrismaUnitOfWork(prisma, new AsyncLocalStorageTraceContext());
-  const budgetController = new BudgetController(
-    new GetBudgetUseCase(new PostgresBudgetRepository(prisma), new PostgresPaymentRepository(prisma)),
-    new DecideBudgetUseCase(unitOfWork),
-  );
-  return createApp(databaseReadiness(prisma), { budgets: budgetRoutes(budgetController) });
+  const budgets = new PostgresBudgetRepository(prisma);
+  const payments = new PostgresPaymentRepository(prisma);
+
+  const routes: AppRoutes = {
+    budgets: budgetRoutes(new BudgetController(new GetBudgetUseCase(budgets, payments), new DecideBudgetUseCase(unitOfWork))),
+  };
+  if (paymentGateway) {
+    const confirmPayment = new ConfirmPaymentUseCase(unitOfWork, budgets, payments, paymentGateway, silentLogger);
+    routes.payments = paymentNotificationRoutes(new PaymentNotificationController(confirmPayment), TEST_WEBHOOK_SECRET);
+  }
+  return createApp(databaseReadiness(prisma), routes);
 }

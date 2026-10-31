@@ -1,5 +1,5 @@
 import { Payment as PaymentRow } from '@prisma/client';
-import { Payment } from '../../entities/Payment';
+import { Payment, Settlement } from '../../entities/Payment';
 import { IPaymentRepository, NewPayment } from '../../use-cases/ports/IPaymentRepository';
 import { PrismaExecutor } from './prismaExecutor';
 
@@ -27,5 +27,19 @@ export class PostgresPaymentRepository implements IPaymentRepository {
   async findByBudgetId(budgetId: string): Promise<Payment | null> {
     const row = await this.prisma.payment.findUnique({ where: { budgetId } });
     return row ? toPayment(row) : null;
+  }
+
+  async settle(id: string, settlement: Settlement & { providerPaymentId: string }): Promise<boolean> {
+    // Conditional on PENDING: of two notifications for the same payment, the
+    // second waits for the first row lock and then matches nothing.
+    const { count } = await this.prisma.payment.updateMany({
+      where: { id, status: 'PENDING' },
+      data: {
+        status: settlement.status,
+        providerPaymentId: settlement.providerPaymentId,
+        failureReason: settlement.failureReason ?? null,
+      },
+    });
+    return count === 1;
   }
 }
