@@ -1,8 +1,10 @@
 import { IOutbox } from './IOutbox';
+import { IProcessedMessages } from './IProcessedMessages';
 
 /** Repositories whose writes commit or roll back together. */
 export interface TransactionalRepositories {
   outbox: IOutbox;
+  processedMessages: IProcessedMessages;
 }
 
 /**

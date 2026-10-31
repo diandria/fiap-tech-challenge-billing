@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaUnitOfWork } from '../../../../src/adapters/gateways/PrismaUnitOfWork';
 import { PrismaOutbox } from '../../../../src/adapters/gateways/PrismaOutbox';
+import { PrismaProcessedMessages } from '../../../../src/adapters/gateways/PrismaProcessedMessages';
 
 describe('PrismaUnitOfWork', () => {
   it('should run the work inside one interactive transaction GIVEN work WHEN run is called', async () => {
@@ -14,5 +15,6 @@ describe('PrismaUnitOfWork', () => {
     expect(result).toBe('stored');
     const repositories = work.mock.calls[0][0];
     expect(repositories.outbox).toBeInstanceOf(PrismaOutbox);
+    expect(repositories.processedMessages).toBeInstanceOf(PrismaProcessedMessages);
   });
 });
