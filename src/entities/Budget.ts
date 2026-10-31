@@ -51,3 +51,15 @@ export function decide(budget: Budget, decision: BudgetDecision, decidedAt: Date
   }
   return { ...budget, status: decision, decidedAt };
 }
+
+/**
+ * Compensation for a saga that will not reach payment. A budget already
+ * rejected or cancelled is returned as is: the compensation still succeeds,
+ * because the saga waits for its reply to close.
+ */
+export function cancel(budget: Budget): Budget {
+  if (budget.status === 'PENDING_APPROVAL' || budget.status === 'APPROVED') {
+    return { ...budget, status: 'CANCELLED' };
+  }
+  return budget;
+}

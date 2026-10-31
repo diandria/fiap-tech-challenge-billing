@@ -21,6 +21,7 @@ import { SqsMessageSender } from './adapters/messaging/SqsMessageSender';
 import { BillingCommandHandler } from './adapters/messaging/BillingCommandHandler';
 import { PublishPendingMessagesUseCase } from './use-cases/messaging/PublishPendingMessagesUseCase';
 import { GenerateBudgetUseCase } from './use-cases/budgets/GenerateBudgetUseCase';
+import { CancelBudgetUseCase } from './use-cases/budgets/CancelBudgetUseCase';
 import { GetBudgetUseCase } from './use-cases/budgets/GetBudgetUseCase';
 import { DecideBudgetUseCase } from './use-cases/budgets/DecideBudgetUseCase';
 import { IUnitOfWork } from './use-cases/ports/IUnitOfWork';
@@ -37,8 +38,10 @@ function startMessaging(queues: QueueConfig, unitOfWork: IUnitOfWork): Messaging
   const relay = new OutboxRelay(new PublishPendingMessagesUseCase(new PrismaOutboxStore(prisma), sender), logger);
 
   const generateBudget = new GenerateBudgetUseCase(unitOfWork);
+  const cancelBudget = new CancelBudgetUseCase(unitOfWork);
   const commands = new BillingCommandHandler({
     GenerateBudget: (command) => generateBudget.execute(command),
+    CancelBudget: (command) => cancelBudget.execute(command),
   });
   const poller = new SqsQueuePoller(sqs, { name: 'billing-commands', url: queues.billingCommands }, commands, logger);
 
