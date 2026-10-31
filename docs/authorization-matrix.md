@@ -26,6 +26,7 @@ Token sem `type`, com `type` desconhecido ou sem o identificador do ator é recu
 | GET | `/service-orders/{id}/budget` | 401 | sim | sim | 403 |
 | PATCH | `/service-orders/{id}/budget` | 401 | 403 | sim | 403 |
 | POST | `/payments/notifications` | só com assinatura do Mercado Pago | 401 | 401 | 401 |
+| POST | `/payments/mock/{serviceOrderId}` | 401 | só admin | 403 | 403 |
 
 A rota de notificação não usa token: quem chama é o Mercado Pago, e a prova disso é o cabeçalho
 `x-signature`, um HMAC calculado com o segredo do webhook da aplicação. Sem assinatura válida a resposta é
@@ -43,3 +44,6 @@ As mesmas que o OS Service aplicava antes de a rota mudar de dono:
 - **Código de confirmação.** Os quatro primeiros dígitos do CPF, comparados com a claim `cpf` do token.
 - **Uma decisão só.** Orçamento que não está pendente responde 400.
 - **Limite de tentativas.** Cinco por hora, por IP e ordem de serviço; a sexta responde 429.
+
+A rota de pagamento simulado só existe com `PAYMENT_PROVIDER=mock`; no modo Mercado Pago ela responde 404,
+e a de notificação é que existe. Nunca existem as duas ao mesmo tempo.

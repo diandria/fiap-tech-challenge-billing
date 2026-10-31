@@ -31,10 +31,10 @@ import { IUnitOfWork } from './use-cases/ports/IUnitOfWork';
 import { IPaymentGateway } from './use-cases/ports/IPaymentGateway';
 import { RequestPaymentUseCase } from './use-cases/payments/RequestPaymentUseCase';
 import { ConfirmPaymentUseCase } from './use-cases/payments/ConfirmPaymentUseCase';
-import { readMercadoPagoConfig, MercadoPagoConfig } from './frameworks/payments/mercadoPagoConfig';
-import { MercadoPagoTokenProvider } from './adapters/payments/MercadoPagoTokenProvider';
-import { MercadoPagoPaymentGateway } from './adapters/payments/MercadoPagoPaymentGateway';
 import { PinoLoggerAdapter } from './adapters/logging/PinoLoggerAdapter';
+import { createPaymentProvider, PaymentProvider } from './frameworks/payments/paymentGatewayFactory';
+import { mockPaymentRoutes } from './frameworks/http/routes/mockPaymentRoutes';
+import { MockPaymentController } from './adapters/controllers/MockPaymentController';
 
 const PORT = process.env.PORT ?? 3000;
 
@@ -42,13 +42,21 @@ interface Messaging {
   stop(): Promise<void>;
 }
 
-function createMercadoPagoGateway(config: MercadoPagoConfig): IPaymentGateway {
-  return new MercadoPagoPaymentGateway(
-    new MercadoPagoTokenProvider(config.credentials),
-    new PrometheusIntegrationFailures(),
+/** The webhook for the real provider; the simulated payment route for the mock, and never both. */
+function paymentRoutes(provider: PaymentProvider, getBudget: GetBudgetUseCase, unitOfWork: IUnitOfWork) {
+  const confirmPayment = new ConfirmPaymentUseCase(
+    unitOfWork,
+    new PostgresBudgetRepository(prisma),
+    new PostgresPaymentRepository(prisma),
+    provider.gateway,
     new PinoLoggerAdapter(logger),
-    { notificationUrl: config.notificationUrl },
   );
+
+  if (provider.kind === 'mock') {
+    logger.warn('PAYMENT_PROVIDER=mock: payments are simulated and no charge reaches Mercado Pago');
+    return mockPaymentRoutes(new MockPaymentController(getBudget, confirmPayment, provider.gateway));
+  }
+  return paymentNotificationRoutes(new PaymentNotificationController(confirmPayment), provider.webhookSecret);
 }
 
 function startMessaging(queues: QueueConfig, unitOfWork: IUnitOfWork, paymentGateway?: IPaymentGateway): Messaging {
@@ -92,20 +100,17 @@ function startMessaging(queues: QueueConfig, unitOfWork: IUnitOfWork, paymentGat
 
 async function main(): Promise<void> {
   const queues = readQueueConfig();
-  const paymentConfig = readMercadoPagoConfig();
-  const paymentGateway = paymentConfig ? createMercadoPagoGateway(paymentConfig) : undefined;
+  const paymentProvider = createPaymentProvider();
 
   const unitOfWork = new PrismaUnitOfWork(prisma, new AsyncLocalStorageTraceContext());
   const budgets = new PostgresBudgetRepository(prisma);
   const payments = new PostgresPaymentRepository(prisma);
 
+  const getBudget = new GetBudgetUseCase(budgets, payments);
   const routes: AppRoutes = {
-    budgets: budgetRoutes(new BudgetController(new GetBudgetUseCase(budgets, payments), new DecideBudgetUseCase(unitOfWork))),
+    budgets: budgetRoutes(new BudgetController(getBudget, new DecideBudgetUseCase(unitOfWork))),
+    payments: paymentProvider && paymentRoutes(paymentProvider, getBudget, unitOfWork),
   };
-  if (paymentConfig && paymentGateway) {
-    const confirmPayment = new ConfirmPaymentUseCase(unitOfWork, budgets, payments, paymentGateway, new PinoLoggerAdapter(logger));
-    routes.payments = paymentNotificationRoutes(new PaymentNotificationController(confirmPayment), paymentConfig.webhookSecret);
-  }
 
   const app = createApp(databaseReadiness(prisma), routes);
   let messaging: Messaging | undefined;
@@ -124,7 +129,7 @@ async function main(): Promise<void> {
   await prisma.$connect();
 
   if (queues) {
-    messaging = startMessaging(queues, unitOfWork, paymentGateway);
+    messaging = startMessaging(queues, unitOfWork, paymentProvider?.gateway);
   } else {
     logger.warn('saga queues are not configured; the service runs without messaging');
   }

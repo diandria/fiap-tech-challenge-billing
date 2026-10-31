@@ -44,6 +44,7 @@ das do OS Service, para os dois poderem rodar juntos.
 | `GET /service-orders/{id}/budget` | Orçamento da ordem, para o cliente dono ou para funcionários |
 | `PATCH /service-orders/{id}/budget` | Aprovação ou rejeição do orçamento pelo cliente dono |
 | `POST /payments/notifications` | Notificação de pagamento do Mercado Pago, aceita só com assinatura válida |
+| `POST /payments/mock/{serviceOrderId}` | Pagamento simulado, só com `PAYMENT_PROVIDER=mock` e token de admin |
 
 Quem pode chamar cada rota está em [docs/authorization-matrix.md](docs/authorization-matrix.md).
 
@@ -65,6 +66,18 @@ recusa (`AMOUNT_MISMATCH`).
 
 Sem nenhuma delas o serviço sobe sem provedor de pagamento, e os pedidos de cobrança falham até um ser
 configurado. Com só parte delas, o serviço não sobe.
+
+### Pagamento simulado
+
+Com `PAYMENT_PROVIDER=mock`, um provedor simulado substitui o Mercado Pago, e o `docker compose` local já
+sobe assim. Só muda quem diz "pago" ou "recusado": orçamento, cobrança, confirmação, outbox e resposta à
+saga são os mesmos de produção. O link de pagamento aponta para `POST /payments/mock/{serviceOrderId}`, que
+um admin chama com `{ "status": "approved" }` ou `{ "status": "rejected" }`. Essa rota só existe no modo
+simulado, e o webhook do Mercado Pago só existe no modo real; o serviço registra um aviso ao subir no modo
+simulado.
+
+`PAYMENT_PROVIDER` aceita `mercado-pago` ou `mock`; outro valor impede o serviço de subir. Sem a variável, o
+serviço usa o Mercado Pago quando as variáveis dele estão definidas.
 
 O link guardado é o `init_point` da preferência. A API também devolve um `sandbox_init_point`; qual dos dois
 abre a compra de teste com credenciais de teste ainda precisa ser confirmado no sandbox.
