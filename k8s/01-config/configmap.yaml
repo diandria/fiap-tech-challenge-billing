@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: billing-config
+  namespace: car-repair-shop-billing
+  labels:
+    app.kubernetes.io/part-of: fiap-tech-challenge
+data:
+  PORT: "3000"
+  NODE_ENV: "production"
+  LOG_LEVEL: "info"
+  OTEL_SERVICE_NAME: "billing-service"
+  AWS_REGION: "us-east-1"
+  CORS_ORIGIN: ""
+  # One hop: the API Gateway. Without it req.ip is a gateway ENI and every
+  # customer shares one budget-decision rate-limit bucket.
+  TRUST_PROXY_HOPS: "1"
+  PAYMENT_PROVIDER: "mercado-pago"
+  NOTIFICATION_CHANNEL: "sns"
