@@ -26,6 +26,10 @@ export async function disconnectTestDB(): Promise<void> {
   await container?.stop();
 }
 
+export async function clearTestDB(): Promise<void> {
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE outbox_messages, processed_messages');
+}
+
 export function createTestApp(): Application {
   return createApp(databaseReadiness(prisma));
 }
