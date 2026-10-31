@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: billing-migrate
+  namespace: car-repair-shop-billing
+  labels:
+    app.kubernetes.io/part-of: fiap-tech-challenge
+    app.kubernetes.io/component: migration
+spec:
+  # Zero, not the default 6: retrying a failed migration either repeats the
+  # same error or worsens a half-applied state.
+  backoffLimit: 0
+  # Finished Jobs would otherwise pile up and occupy pod slots.
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+      - name: migrate
+        # Same tag as the application: a different image could apply a schema
+        # the running code does not know.
+        image: car-repair-shop-billing:latest
+        command: ["npx", "prisma", "migrate", "deploy"]
+        envFrom:
+        - secretRef:
+            name: billing-secret
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"

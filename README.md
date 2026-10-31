@@ -96,6 +96,24 @@ contrato do ADR-003 estendido pelo ADR-015, e a função de notificações entre
 O aviso é melhor esforço: sai depois do commit, e uma falha no envio fica no log e na métrica
 `integration_failures_total`, sem desfazer o orçamento nem a cobrança.
 
+## Kubernetes
+
+Os manifestos ficam em `k8s/` e seguem os do OS Service, no namespace `car-repair-shop-billing`, que o
+`infra-k8s` cria junto com o cluster.
+
+| Recurso | Nome | Detalhe |
+|---|---|---|
+| ConfigMap | `billing-config` | Variáveis fixas, versionadas aqui |
+| Service | `billing-api` | NLB interno; o API Gateway chega nele pela tag `service.k8s.aws/stack = car-repair-shop-billing/billing-api` |
+| Deployment | `billing-api` | Probes em `/health` e `/ready`, rolling update de 25% |
+| HPA | `billing-api` | De 2 a 4 réplicas por CPU, cabendo no cluster compartilhado com os outros serviços |
+| PodDisruptionBudget | `billing-api` | Pelo menos uma réplica durante a drenagem de um node |
+| Job | `billing-migrate` | `prisma migrate deploy` com a mesma imagem da aplicação |
+
+O pipeline de deploy cria o ConfigMap `billing-runtime` (URLs das filas, tópico de notificações e endereço
+público do webhook) e o Secret `billing-secret` (`DATABASE_URL`, `JWT_SECRET` e as credenciais do Mercado
+Pago). O CI valida os manifestos com `kubeconform -strict`.
+
 ## Infraestrutura
 
 O banco do Billing é provisionado por este repositório, na pasta `terraform/`, com estado próprio
