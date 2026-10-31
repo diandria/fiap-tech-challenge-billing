@@ -23,8 +23,17 @@ function makeGateway(): jest.Mocked<IPaymentGateway> {
   };
 }
 
-function makeUseCase(repositories: FakeRepositories, gateway: IPaymentGateway) {
-  return new RequestPaymentUseCase(makeUnitOfWork(repositories), repositories.budgets, repositories.payments, gateway);
+function makeNotifier() {
+  return { budgetReady: jest.fn(), paymentRequested: jest.fn().mockResolvedValue(undefined) };
+}
+
+function makeUseCase(
+  repositories: FakeRepositories,
+  gateway: IPaymentGateway,
+  notifier = makeNotifier(),
+  logger = { warn: jest.fn(), error: jest.fn() },
+) {
+  return new RequestPaymentUseCase(makeUnitOfWork(repositories), repositories.budgets, repositories.payments, gateway, notifier, logger);
 }
 
 describe('RequestPaymentUseCase', () => {
@@ -97,5 +106,39 @@ describe('RequestPaymentUseCase', () => {
     await makeUseCase(repositories, makeGateway()).execute(command);
 
     expect(repositories.payments.create).not.toHaveBeenCalled();
+  });
+
+  it('sends the customer the payment link once the payment is stored', async () => {
+    const repositories = makeRepositories();
+    repositories.budgets.findByServiceOrderId.mockResolvedValue(approvedBudget);
+    const notifier = makeNotifier();
+
+    await makeUseCase(repositories, makeGateway(), notifier).execute(command);
+
+    expect(notifier.paymentRequested).toHaveBeenCalledWith(approvedBudget, pendingPayment);
+  });
+
+  it('logs and keeps the payment when the notifier fails', async () => {
+    const repositories = makeRepositories();
+    repositories.budgets.findByServiceOrderId.mockResolvedValue(approvedBudget);
+    const notifier = makeNotifier();
+    notifier.paymentRequested.mockRejectedValue(new Error('topic unavailable'));
+    const logger = { warn: jest.fn(), error: jest.fn() };
+
+    await expect(makeUseCase(repositories, makeGateway(), notifier, logger).execute(command)).resolves.toBeUndefined();
+
+    expect(repositories.payments.create).toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('does not send the link again when the payment already existed', async () => {
+    const repositories = makeRepositories();
+    repositories.budgets.findByServiceOrderId.mockResolvedValue(approvedBudget);
+    repositories.payments.findByBudgetId.mockResolvedValue(pendingPayment);
+    const notifier = makeNotifier();
+
+    await makeUseCase(repositories, makeGateway(), notifier).execute(command);
+
+    expect(notifier.paymentRequested).not.toHaveBeenCalled();
   });
 });

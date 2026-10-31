@@ -32,6 +32,8 @@ beforeAll(async () => {
     new PostgresBudgetRepository(prisma),
     new PostgresPaymentRepository(prisma),
     new FakePaymentGateway(),
+    { budgetReady: jest.fn(), paymentRequested: jest.fn() },
+    { warn: jest.fn(), error: jest.fn() },
   );
   const handler = new BillingCommandHandler({ RequestPayment: (command) => requestPayment.execute(command) });
   poller = new SqsQueuePoller(sqs, { name: 'billing-commands', url: queues['billing-commands'].url }, handler, silentLog, { waitTimeSeconds: 1 });

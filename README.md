@@ -82,6 +82,20 @@ serviço usa o Mercado Pago quando as variáveis dele estão definidas.
 O link guardado é o `init_point` da preferência. A API também devolve um `sandbox_init_point`; qual dos dois
 abre a compra de teste com credenciais de teste ainda precisa ser confirmado no sandbox.
 
+## Avisos ao cliente
+
+Depois de gerar o orçamento, o Billing publica `BUDGET_READY`; depois de criar a cobrança, publica
+`PAYMENT_REQUESTED` com o link de pagamento. Os dois vão para o tópico de notificações da Fase 3, no
+contrato do ADR-003 estendido pelo ADR-015, e a função de notificações entrega ao cliente.
+
+| Variável | Para que serve |
+|---|---|
+| `NOTIFICATION_CHANNEL` | `console` (padrão) só registra o aviso no log; `sns` publica no tópico |
+| `SNS_TOPIC_ARN` | Tópico de notificações; obrigatório com `NOTIFICATION_CHANNEL=sns` |
+
+O aviso é melhor esforço: sai depois do commit, e uma falha no envio fica no log e na métrica
+`integration_failures_total`, sem desfazer o orçamento nem a cobrança.
+
 ## Infraestrutura
 
 O banco do Billing é provisionado por este repositório, na pasta `terraform/`, com estado próprio
