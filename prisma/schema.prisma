@@ -1,0 +1,40 @@
+// Billing data only. No table here is read by another service, and this
+// service reads no table of another (ADR-016 in the OS Service repository).
+
+generator client {
+  provider        = "prisma-client-js"
+  // Required for Prisma to emit spans: it talks to its own query engine rather
+  // than the pg driver, so pg instrumentation sees nothing.
+  previewFeatures = ["tracing"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Messages waiting to be published, written in the same transaction as the
+// change that produced them. The relay publishes and marks them.
+model OutboxMessage {
+  id             String    @id @db.Uuid
+  destination    String
+  type           String
+  serviceOrderId String    @map("service_order_id") @db.Uuid
+  payload        Json
+  traceparent    String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+  publishedAt    DateTime? @map("published_at")
+
+  @@index([publishedAt, createdAt])
+  @@map("outbox_messages")
+}
+
+// Ids of messages already handled. Recording the id in the same transaction as
+// the effect makes a redelivered message produce no effect the second time.
+model ProcessedMessage {
+  messageId   String   @id @map("message_id") @db.Uuid
+  type        String
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@map("processed_messages")
+}
