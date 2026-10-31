@@ -1,4 +1,7 @@
 import 'dotenv/config';
+// First runtime import: auto-instrumentation has to patch http and express
+// before those modules load.
+import './frameworks/tracing/start';
 import { createApp } from './app';
 import { prisma, disconnectPrisma } from './frameworks/database/prismaClient';
 import { databaseReadiness } from './frameworks/database/readinessProbe';
