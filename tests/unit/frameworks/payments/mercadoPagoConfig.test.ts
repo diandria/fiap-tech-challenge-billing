@@ -3,7 +3,8 @@ import { readMercadoPagoConfig } from '../../../../src/frameworks/payments/merca
 const complete = {
   MERCADO_PAGO_CLIENT_ID: 'client-id',
   MERCADO_PAGO_CLIENT_SECRET: 'client-secret',
-  MERCADO_PAGO_NOTIFICATION_URL: 'https://gateway.example.com/payments/webhook',
+  MERCADO_PAGO_NOTIFICATION_URL: 'https://gateway.example.com/payments/notifications',
+  MERCADO_PAGO_WEBHOOK_SECRET: 'webhook-secret',
 };
 
 describe('readMercadoPagoConfig', () => {
@@ -14,7 +15,8 @@ describe('readMercadoPagoConfig', () => {
   it('returns the credentials and the notification url when all are set', () => {
     expect(readMercadoPagoConfig(complete)).toEqual({
       credentials: { clientId: 'client-id', clientSecret: 'client-secret' },
-      notificationUrl: 'https://gateway.example.com/payments/webhook',
+      notificationUrl: 'https://gateway.example.com/payments/notifications',
+      webhookSecret: 'webhook-secret',
     });
   });
 

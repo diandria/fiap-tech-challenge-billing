@@ -23,6 +23,7 @@ export const makeRepositories = (): FakeRepositories => ({
   payments: {
     create: jest.fn().mockResolvedValue(pendingPayment),
     findByBudgetId: jest.fn().mockResolvedValue(null),
+    settle: jest.fn().mockResolvedValue(true),
   },
   outbox: { add: jest.fn() },
   processedMessages: { markProcessed: jest.fn().mockResolvedValue(true) },

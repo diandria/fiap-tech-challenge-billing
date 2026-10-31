@@ -3,8 +3,10 @@ import 'dotenv/config';
 // before those modules load.
 import './frameworks/tracing/start';
 import { SQSClient } from '@aws-sdk/client-sqs';
-import { createApp } from './app';
+import { createApp, AppRoutes } from './app';
 import { budgetRoutes } from './frameworks/http/routes/budgetRoutes';
+import { paymentNotificationRoutes } from './frameworks/http/routes/paymentNotificationRoutes';
+import { PaymentNotificationController } from './adapters/controllers/PaymentNotificationController';
 import { BudgetController } from './adapters/controllers/BudgetController';
 import { PostgresBudgetRepository } from './adapters/gateways/PostgresBudgetRepository';
 import { PostgresPaymentRepository } from './adapters/gateways/PostgresPaymentRepository';
@@ -28,7 +30,8 @@ import { DecideBudgetUseCase } from './use-cases/budgets/DecideBudgetUseCase';
 import { IUnitOfWork } from './use-cases/ports/IUnitOfWork';
 import { IPaymentGateway } from './use-cases/ports/IPaymentGateway';
 import { RequestPaymentUseCase } from './use-cases/payments/RequestPaymentUseCase';
-import { readMercadoPagoConfig } from './frameworks/payments/mercadoPagoConfig';
+import { ConfirmPaymentUseCase } from './use-cases/payments/ConfirmPaymentUseCase';
+import { readMercadoPagoConfig, MercadoPagoConfig } from './frameworks/payments/mercadoPagoConfig';
 import { MercadoPagoTokenProvider } from './adapters/payments/MercadoPagoTokenProvider';
 import { MercadoPagoPaymentGateway } from './adapters/payments/MercadoPagoPaymentGateway';
 import { PinoLoggerAdapter } from './adapters/logging/PinoLoggerAdapter';
@@ -39,10 +42,7 @@ interface Messaging {
   stop(): Promise<void>;
 }
 
-function createPaymentGateway(): IPaymentGateway | undefined {
-  const config = readMercadoPagoConfig();
-  if (!config) return undefined;
-
+function createMercadoPagoGateway(config: MercadoPagoConfig): IPaymentGateway {
   return new MercadoPagoPaymentGateway(
     new MercadoPagoTokenProvider(config.credentials),
     new PrometheusIntegrationFailures(),
@@ -92,13 +92,22 @@ function startMessaging(queues: QueueConfig, unitOfWork: IUnitOfWork, paymentGat
 
 async function main(): Promise<void> {
   const queues = readQueueConfig();
-  const paymentGateway = createPaymentGateway();
+  const paymentConfig = readMercadoPagoConfig();
+  const paymentGateway = paymentConfig ? createMercadoPagoGateway(paymentConfig) : undefined;
+
   const unitOfWork = new PrismaUnitOfWork(prisma, new AsyncLocalStorageTraceContext());
-  const budgetController = new BudgetController(
-    new GetBudgetUseCase(new PostgresBudgetRepository(prisma), new PostgresPaymentRepository(prisma)),
-    new DecideBudgetUseCase(unitOfWork),
-  );
-  const app = createApp(databaseReadiness(prisma), { budgets: budgetRoutes(budgetController) });
+  const budgets = new PostgresBudgetRepository(prisma);
+  const payments = new PostgresPaymentRepository(prisma);
+
+  const routes: AppRoutes = {
+    budgets: budgetRoutes(new BudgetController(new GetBudgetUseCase(budgets, payments), new DecideBudgetUseCase(unitOfWork))),
+  };
+  if (paymentConfig && paymentGateway) {
+    const confirmPayment = new ConfirmPaymentUseCase(unitOfWork, budgets, payments, paymentGateway, new PinoLoggerAdapter(logger));
+    routes.payments = paymentNotificationRoutes(new PaymentNotificationController(confirmPayment), paymentConfig.webhookSecret);
+  }
+
+  const app = createApp(databaseReadiness(prisma), routes);
   let messaging: Messaging | undefined;
 
   // The HTTP server starts before the database connects, so the probes answer during startup.

@@ -8,6 +8,8 @@ import { healthRoutes, ReadinessCheck } from './frameworks/http/routes/healthRou
 
 export interface AppRoutes {
   budgets: Router;
+  /** Only when a payment provider is configured. */
+  payments?: Router;
 }
 
 /** Without routes the app serves only health, metrics and docs, which is what the probe tests need. */
@@ -54,6 +56,7 @@ export function createApp(checkDatabase: ReadinessCheck, routes?: AppRoutes): Ap
   app.use('/', healthRoutes(checkDatabase));
   if (routes) {
     app.use('/service-orders', routes.budgets);
+    if (routes.payments) app.use('/payments', routes.payments);
   }
 
   app.use(errorMiddleware);

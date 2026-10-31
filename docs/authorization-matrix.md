@@ -25,6 +25,13 @@ Token sem `type`, com `type` desconhecido ou sem o identificador do ator é recu
 | GET | `/docs` | sim | sim | sim | sim |
 | GET | `/service-orders/{id}/budget` | 401 | sim | sim | 403 |
 | PATCH | `/service-orders/{id}/budget` | 401 | 403 | sim | 403 |
+| POST | `/payments/notifications` | só com assinatura do Mercado Pago | 401 | 401 | 401 |
+
+A rota de notificação não usa token: quem chama é o Mercado Pago, e a prova disso é o cabeçalho
+`x-signature`, um HMAC calculado com o segredo do webhook da aplicação. Sem assinatura válida a resposta é
+401. Mesmo com assinatura válida, nada do corpo da notificação decide o pagamento: o Billing usa só o id do
+pagamento e consulta a API do Mercado Pago para saber o que aconteceu. A rota só existe quando o Mercado
+Pago está configurado e fica fora do Swagger, porque é um contrato com o provedor.
 
 ## Regras da decisão do orçamento
 

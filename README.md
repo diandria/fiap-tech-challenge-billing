@@ -43,6 +43,7 @@ das do OS Service, para os dois poderem rodar juntos.
 | `GET /docs` | Swagger |
 | `GET /service-orders/{id}/budget` | Orçamento da ordem, para o cliente dono ou para funcionários |
 | `PATCH /service-orders/{id}/budget` | Aprovação ou rejeição do orçamento pelo cliente dono |
+| `POST /payments/notifications` | Notificação de pagamento do Mercado Pago, aceita só com assinatura válida |
 
 Quem pode chamar cada rota está em [docs/authorization-matrix.md](docs/authorization-matrix.md).
 
@@ -55,7 +56,12 @@ Billing cria a preferência com o total do orçamento e guarda o link de pagamen
 | Variável | Para que serve |
 |---|---|
 | `MERCADO_PAGO_CLIENT_ID` e `MERCADO_PAGO_CLIENT_SECRET` | Credenciais da aplicação, trocadas por um token de curta duração (`client_credentials`) |
-| `MERCADO_PAGO_NOTIFICATION_URL` | Endereço público da rota de notificação de pagamento, chamado pelo Mercado Pago |
+| `MERCADO_PAGO_NOTIFICATION_URL` | Endereço público de `POST /payments/notifications`, chamado pelo Mercado Pago |
+| `MERCADO_PAGO_WEBHOOK_SECRET` | Segredo do webhook da aplicação, usado para conferir a assinatura de cada notificação |
+
+Quando chega uma notificação assinada, o Billing consulta o pagamento na API e responde à saga com
+`PaymentConfirmed` ou `PaymentFailed`. Pagamento aprovado com valor diferente do orçamento conta como
+recusa (`AMOUNT_MISMATCH`).
 
 Sem nenhuma delas o serviço sobe sem provedor de pagamento, e os pedidos de cobrança falham até um ser
 configurado. Com só parte delas, o serviço não sobe.
