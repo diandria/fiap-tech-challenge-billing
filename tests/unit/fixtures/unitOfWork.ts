@@ -1,10 +1,13 @@
 import { IUnitOfWork } from '../../../src/use-cases/ports/IUnitOfWork';
 import { Budget } from '../../../src/entities/Budget';
 import { BudgetStatusChange, IBudgetRepository } from '../../../src/use-cases/ports/IBudgetRepository';
+import { IPaymentRepository } from '../../../src/use-cases/ports/IPaymentRepository';
 import { pendingBudget } from './budget';
+import { pendingPayment } from './payment';
 
 export interface FakeRepositories {
   budgets: jest.Mocked<IBudgetRepository>;
+  payments: jest.Mocked<IPaymentRepository>;
   outbox: { add: jest.Mock };
   processedMessages: { markProcessed: jest.Mock };
 }
@@ -16,6 +19,10 @@ export const makeRepositories = (): FakeRepositories => ({
     updateStatus: jest.fn<Promise<Budget>, [string, BudgetStatusChange, number]>(
       async (_id, change) => ({ ...pendingBudget, ...change, version: pendingBudget.version + 1 }),
     ),
+  },
+  payments: {
+    create: jest.fn().mockResolvedValue(pendingPayment),
+    findByBudgetId: jest.fn().mockResolvedValue(null),
   },
   outbox: { add: jest.fn() },
   processedMessages: { markProcessed: jest.fn().mockResolvedValue(true) },

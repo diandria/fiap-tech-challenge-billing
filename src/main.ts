@@ -7,6 +7,7 @@ import { createApp } from './app';
 import { budgetRoutes } from './frameworks/http/routes/budgetRoutes';
 import { BudgetController } from './adapters/controllers/BudgetController';
 import { PostgresBudgetRepository } from './adapters/gateways/PostgresBudgetRepository';
+import { PostgresPaymentRepository } from './adapters/gateways/PostgresPaymentRepository';
 import { prisma, disconnectPrisma } from './frameworks/database/prismaClient';
 import { databaseReadiness } from './frameworks/database/readinessProbe';
 import { logger } from './frameworks/logging/logger';
@@ -18,13 +19,19 @@ import { AsyncLocalStorageTraceContext } from './frameworks/logging/AsyncLocalSt
 import { PrismaUnitOfWork } from './adapters/gateways/PrismaUnitOfWork';
 import { PrismaOutboxStore } from './adapters/gateways/PrismaOutboxStore';
 import { SqsMessageSender } from './adapters/messaging/SqsMessageSender';
-import { BillingCommandHandler } from './adapters/messaging/BillingCommandHandler';
+import { BillingCommandHandler, CommandHandlers } from './adapters/messaging/BillingCommandHandler';
 import { PublishPendingMessagesUseCase } from './use-cases/messaging/PublishPendingMessagesUseCase';
 import { GenerateBudgetUseCase } from './use-cases/budgets/GenerateBudgetUseCase';
 import { CancelBudgetUseCase } from './use-cases/budgets/CancelBudgetUseCase';
 import { GetBudgetUseCase } from './use-cases/budgets/GetBudgetUseCase';
 import { DecideBudgetUseCase } from './use-cases/budgets/DecideBudgetUseCase';
 import { IUnitOfWork } from './use-cases/ports/IUnitOfWork';
+import { IPaymentGateway } from './use-cases/ports/IPaymentGateway';
+import { RequestPaymentUseCase } from './use-cases/payments/RequestPaymentUseCase';
+import { readMercadoPagoConfig } from './frameworks/payments/mercadoPagoConfig';
+import { MercadoPagoTokenProvider } from './adapters/payments/MercadoPagoTokenProvider';
+import { MercadoPagoPaymentGateway } from './adapters/payments/MercadoPagoPaymentGateway';
+import { PinoLoggerAdapter } from './adapters/logging/PinoLoggerAdapter';
 
 const PORT = process.env.PORT ?? 3000;
 
@@ -32,17 +39,43 @@ interface Messaging {
   stop(): Promise<void>;
 }
 
-function startMessaging(queues: QueueConfig, unitOfWork: IUnitOfWork): Messaging {
+function createPaymentGateway(): IPaymentGateway | undefined {
+  const config = readMercadoPagoConfig();
+  if (!config) return undefined;
+
+  return new MercadoPagoPaymentGateway(
+    new MercadoPagoTokenProvider(config.credentials),
+    new PrometheusIntegrationFailures(),
+    new PinoLoggerAdapter(logger),
+    { notificationUrl: config.notificationUrl },
+  );
+}
+
+function startMessaging(queues: QueueConfig, unitOfWork: IUnitOfWork, paymentGateway?: IPaymentGateway): Messaging {
   const sqs = new SQSClient({});
   const sender = new SqsMessageSender(sqs, queues.destinations, new PrometheusIntegrationFailures());
   const relay = new OutboxRelay(new PublishPendingMessagesUseCase(new PrismaOutboxStore(prisma), sender), logger);
 
   const generateBudget = new GenerateBudgetUseCase(unitOfWork);
   const cancelBudget = new CancelBudgetUseCase(unitOfWork);
-  const commands = new BillingCommandHandler({
+  const handlers: CommandHandlers = {
     GenerateBudget: (command) => generateBudget.execute(command),
     CancelBudget: (command) => cancelBudget.execute(command),
-  });
+  };
+
+  if (paymentGateway) {
+    const requestPayment = new RequestPaymentUseCase(
+      unitOfWork,
+      new PostgresBudgetRepository(prisma),
+      new PostgresPaymentRepository(prisma),
+      paymentGateway,
+    );
+    handlers.RequestPayment = (command) => requestPayment.execute(command);
+  } else {
+    logger.warn('no payment provider is configured; RequestPayment commands will fail until one is');
+  }
+
+  const commands = new BillingCommandHandler(handlers);
   const poller = new SqsQueuePoller(sqs, { name: 'billing-commands', url: queues.billingCommands }, commands, logger);
 
   relay.start();
@@ -59,9 +92,10 @@ function startMessaging(queues: QueueConfig, unitOfWork: IUnitOfWork): Messaging
 
 async function main(): Promise<void> {
   const queues = readQueueConfig();
+  const paymentGateway = createPaymentGateway();
   const unitOfWork = new PrismaUnitOfWork(prisma, new AsyncLocalStorageTraceContext());
   const budgetController = new BudgetController(
-    new GetBudgetUseCase(new PostgresBudgetRepository(prisma)),
+    new GetBudgetUseCase(new PostgresBudgetRepository(prisma), new PostgresPaymentRepository(prisma)),
     new DecideBudgetUseCase(unitOfWork),
   );
   const app = createApp(databaseReadiness(prisma), { budgets: budgetRoutes(budgetController) });
@@ -81,7 +115,7 @@ async function main(): Promise<void> {
   await prisma.$connect();
 
   if (queues) {
-    messaging = startMessaging(queues, unitOfWork);
+    messaging = startMessaging(queues, unitOfWork, paymentGateway);
   } else {
     logger.warn('saga queues are not configured; the service runs without messaging');
   }

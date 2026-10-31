@@ -1,10 +1,11 @@
 import { BudgetPresenter } from '../../../../src/adapters/presenters/BudgetPresenter';
 import { pendingBudget } from '../../fixtures/budget';
+import { pendingPayment } from '../../fixtures/payment';
 
 describe('BudgetPresenter', () => {
   it('maps a budget with and without payment', () => {
     const withoutPayment = BudgetPresenter.ok(pendingBudget);
-    const withPayment = BudgetPresenter.ok(pendingBudget, { status: 'PENDING', checkoutUrl: 'https://mp.test/checkout/1' });
+    const withPayment = BudgetPresenter.ok(pendingBudget, pendingPayment);
 
     expect(withoutPayment).toEqual({
       status: 200,
@@ -16,6 +17,6 @@ describe('BudgetPresenter', () => {
         payment: null,
       },
     });
-    expect(withPayment.body.payment).toEqual({ status: 'PENDING', checkoutUrl: 'https://mp.test/checkout/1' });
+    expect(withPayment.body.payment).toEqual({ status: 'PENDING', checkoutUrl: 'https://mp.test/checkout/pref-1' });
   });
 });

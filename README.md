@@ -46,6 +46,23 @@ das do OS Service, para os dois poderem rodar juntos.
 
 Quem pode chamar cada rota está em [docs/authorization-matrix.md](docs/authorization-matrix.md).
 
+## Pagamento
+
+O orçamento aprovado é cobrado pelo Checkout Pro do Mercado Pago. Quando o OS manda `RequestPayment`, o
+Billing cria a preferência com o total do orçamento e guarda o link de pagamento, que o cliente vê em
+`GET /service-orders/{id}/budget`.
+
+| Variável | Para que serve |
+|---|---|
+| `MERCADO_PAGO_CLIENT_ID` e `MERCADO_PAGO_CLIENT_SECRET` | Credenciais da aplicação, trocadas por um token de curta duração (`client_credentials`) |
+| `MERCADO_PAGO_NOTIFICATION_URL` | Endereço público da rota de notificação de pagamento, chamado pelo Mercado Pago |
+
+Sem nenhuma delas o serviço sobe sem provedor de pagamento, e os pedidos de cobrança falham até um ser
+configurado. Com só parte delas, o serviço não sobe.
+
+O link guardado é o `init_point` da preferência. A API também devolve um `sandbox_init_point`; qual dos dois
+abre a compra de teste com credenciais de teste ainda precisa ser confirmado no sandbox.
+
 ## Infraestrutura
 
 O banco do Billing é provisionado por este repositório, na pasta `terraform/`, com estado próprio

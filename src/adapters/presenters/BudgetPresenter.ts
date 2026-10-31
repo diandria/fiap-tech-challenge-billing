@@ -1,13 +1,8 @@
 import { Budget } from '../../entities/Budget';
-
-/** What the customer needs to pay: the charge status and where to pay it. */
-export interface PaymentView {
-  status: string;
-  checkoutUrl: string;
-}
+import { Payment } from '../../entities/Payment';
 
 export const BudgetPresenter = {
-  ok(budget: Budget, payment: PaymentView | null = null) {
+  ok(budget: Budget, payment: Payment | null = null) {
     return {
       status: 200,
       body: {
@@ -21,7 +16,8 @@ export const BudgetPresenter = {
           unitPrice: line.unitPrice,
           quantity: line.quantity,
         })),
-        payment,
+        // Only what the customer needs to pay: the charge status and where to pay it.
+        payment: payment ? { status: payment.status, checkoutUrl: payment.checkoutUrl } : null,
       },
     };
   },
