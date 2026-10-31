@@ -1,10 +1,12 @@
 import { IBudgetRepository } from './IBudgetRepository';
 import { IOutbox } from './IOutbox';
+import { IPaymentRepository } from './IPaymentRepository';
 import { IProcessedMessages } from './IProcessedMessages';
 
 /** Repositories whose writes commit or roll back together. */
 export interface TransactionalRepositories {
   budgets: IBudgetRepository;
+  payments: IPaymentRepository;
   outbox: IOutbox;
   processedMessages: IProcessedMessages;
 }

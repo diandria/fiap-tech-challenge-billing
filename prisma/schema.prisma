@@ -66,6 +66,7 @@ model Budget {
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
   lines          BudgetLine[]
+  payment        Payment?
 
   @@map("budgets")
 }
@@ -82,4 +83,28 @@ model BudgetLine {
 
   @@index([budgetId])
   @@map("budget_lines")
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+// The charge of an approved budget. The amount is copied from the budget when
+// the charge is created, so it is the one the customer was asked to pay.
+model Payment {
+  id                String        @id @default(uuid()) @db.Uuid
+  budgetId          String        @unique @map("budget_id") @db.Uuid
+  preferenceId      String        @unique @map("preference_id")
+  providerPaymentId String?       @unique @map("provider_payment_id")
+  checkoutUrl       String        @map("checkout_url")
+  amount            Decimal       @db.Decimal(10, 2)
+  status            PaymentStatus @default(PENDING)
+  failureReason     String?       @map("failure_reason")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  budget            Budget        @relation(fields: [budgetId], references: [id])
+
+  @@map("payments")
 }

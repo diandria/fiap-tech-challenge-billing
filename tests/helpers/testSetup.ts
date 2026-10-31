@@ -7,6 +7,7 @@ import { databaseReadiness } from '../../src/frameworks/database/readinessProbe'
 import { budgetRoutes } from '../../src/frameworks/http/routes/budgetRoutes';
 import { BudgetController } from '../../src/adapters/controllers/BudgetController';
 import { PostgresBudgetRepository } from '../../src/adapters/gateways/PostgresBudgetRepository';
+import { PostgresPaymentRepository } from '../../src/adapters/gateways/PostgresPaymentRepository';
 import { PrismaUnitOfWork } from '../../src/adapters/gateways/PrismaUnitOfWork';
 import { AsyncLocalStorageTraceContext } from '../../src/frameworks/logging/AsyncLocalStorageTraceContext';
 import { GetBudgetUseCase } from '../../src/use-cases/budgets/GetBudgetUseCase';
@@ -34,13 +35,13 @@ export async function disconnectTestDB(): Promise<void> {
 }
 
 export async function clearTestDB(): Promise<void> {
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE budget_lines, budgets, outbox_messages, processed_messages');
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE payments, budget_lines, budgets, outbox_messages, processed_messages');
 }
 
 export function createTestApp(): Application {
   const unitOfWork = new PrismaUnitOfWork(prisma, new AsyncLocalStorageTraceContext());
   const budgetController = new BudgetController(
-    new GetBudgetUseCase(new PostgresBudgetRepository(prisma)),
+    new GetBudgetUseCase(new PostgresBudgetRepository(prisma), new PostgresPaymentRepository(prisma)),
     new DecideBudgetUseCase(unitOfWork),
   );
   return createApp(databaseReadiness(prisma), { budgets: budgetRoutes(budgetController) });

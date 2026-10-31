@@ -19,11 +19,11 @@ export class BudgetController {
 
   async get(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const budget = await this.getBudget.execute({
+      const { budget, payment } = await this.getBudget.execute({
         serviceOrderId: req.params.id,
         requesterCustomerId: requesterCustomerId(req),
       });
-      const { status, body } = BudgetPresenter.ok(budget);
+      const { status, body } = BudgetPresenter.ok(budget, payment);
       res.status(status).json(body);
     } catch (err) { next(err); }
   }
