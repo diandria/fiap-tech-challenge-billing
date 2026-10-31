@@ -151,6 +151,46 @@ python3 ../scripts/check-no-public-ingress.py
 trivy config .
 ```
 
+## CI/CD
+
+O `CI` roda em todo pull request e em todo push na `main`: build, lint, testes, cobertura e validação dos
+manifestos. O `CD` dispara quando o `CI` termina verde na `main` e publica o serviço no EKS, no namespace
+`car-repair-shop-billing`:
+
+1. Build da imagem e push no ECR `car-repair-shop-billing`, com a tag do SHA curto do commit.
+2. Leitura da configuração na AWS. Se algum valor faltar, o deploy para aqui com `required value missing
+   or empty: <nome>`, antes de aplicar qualquer coisa no cluster.
+3. ConfigMap `billing-runtime` e Secret `billing-secret`, seguidos dos manifestos de `k8s/`.
+4. Job `billing-migrate` com a imagem nova. Se a migration falha, nenhum pod novo sobe.
+5. Troca da imagem do Deployment e espera do rollout; se ele não fica pronto em 5 minutos, o CD volta para
+   a revisão anterior e termina com erro.
+6. Verificação de `/ready` dentro de um pod, que confirma também o acesso ao banco.
+
+De onde vem cada valor:
+
+| Valor | Origem |
+|---|---|
+| Endereço, usuário e nome do banco | Instância `car-repair-shop-billing-db`, criada pelo `terraform/` deste repositório |
+| Senha do banco | SSM `/car-repair-shop/billing/db/password`, escrita pelo mesmo Terraform |
+| `JWT_SECRET` | SSM `/car-repair-shop/auth/jwt-secret`, escrito pelo Terraform das functions |
+| Credenciais do Mercado Pago | SSM `/car-repair-shop/billing/mercado-pago-client-id`, `.../mercado-pago-client-secret` e `.../mercado-pago-webhook-secret`, cadastrados à mão |
+| Filas `billing-commands` e `saga-replies` | `infra-k8s` |
+| Tópico de avisos ao cliente | `car-repair-shop-service-order-events`, das functions |
+| `MERCADO_PAGO_NOTIFICATION_URL` | Endereço do API Gateway mais `/payments/notifications` |
+
+Os segredos são mascarados no log assim que lidos. Como no OS Service, os únicos segredos do GitHub são os
+três da AWS; o resto vem do SSM, para não existir uma segunda cópia que possa divergir. Cada deploy fica
+registrado em **Deployments → production**.
+
+As credenciais do Mercado Pago não vêm do Terraform para nunca passarem por `tfvars` nem pelo estado.
+Para cadastrá-las numa conta nova:
+
+```bash
+aws ssm put-parameter --type SecureString --name /car-repair-shop/billing/mercado-pago-client-id --value '<client id>'
+aws ssm put-parameter --type SecureString --name /car-repair-shop/billing/mercado-pago-client-secret --value '<client secret>'
+aws ssm put-parameter --type SecureString --name /car-repair-shop/billing/mercado-pago-webhook-secret --value '<assinatura secreta do webhook>'
+```
+
 ## Testes
 
 ```bash
