@@ -1,4 +1,8 @@
+import { ValidationError } from './errors/AppError';
+
 export type BudgetStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+
+export type BudgetDecision = 'APPROVED' | 'REJECTED';
 
 export type BudgetLineKind = 'SERVICE' | 'ITEM';
 
@@ -38,4 +42,12 @@ export interface Budget {
 export function calculateTotal(lines: BudgetLine[]): number {
   const total = lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
   return Math.round(total * 100) / 100;
+}
+
+/** Records the customer's decision. Only a pending budget can be decided, and only once. */
+export function decide(budget: Budget, decision: BudgetDecision, decidedAt: Date): Budget {
+  if (budget.status !== 'PENDING_APPROVAL') {
+    throw new ValidationError(`Budget is ${budget.status}; only a pending budget can be decided`);
+  }
+  return { ...budget, status: decision, decidedAt };
 }

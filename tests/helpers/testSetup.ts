@@ -4,6 +4,13 @@ import { PrismaClient } from '@prisma/client';
 import { Application } from 'express';
 import { createApp } from '../../src/app';
 import { databaseReadiness } from '../../src/frameworks/database/readinessProbe';
+import { budgetRoutes } from '../../src/frameworks/http/routes/budgetRoutes';
+import { BudgetController } from '../../src/adapters/controllers/BudgetController';
+import { PostgresBudgetRepository } from '../../src/adapters/gateways/PostgresBudgetRepository';
+import { PrismaUnitOfWork } from '../../src/adapters/gateways/PrismaUnitOfWork';
+import { AsyncLocalStorageTraceContext } from '../../src/frameworks/logging/AsyncLocalStorageTraceContext';
+import { GetBudgetUseCase } from '../../src/use-cases/budgets/GetBudgetUseCase';
+import { DecideBudgetUseCase } from '../../src/use-cases/budgets/DecideBudgetUseCase';
 
 let container: StartedPostgreSqlContainer | undefined;
 export let prisma: PrismaClient;
@@ -31,5 +38,10 @@ export async function clearTestDB(): Promise<void> {
 }
 
 export function createTestApp(): Application {
-  return createApp(databaseReadiness(prisma));
+  const unitOfWork = new PrismaUnitOfWork(prisma, new AsyncLocalStorageTraceContext());
+  const budgetController = new BudgetController(
+    new GetBudgetUseCase(new PostgresBudgetRepository(prisma)),
+    new DecideBudgetUseCase(unitOfWork),
+  );
+  return createApp(databaseReadiness(prisma), { budgets: budgetRoutes(budgetController) });
 }

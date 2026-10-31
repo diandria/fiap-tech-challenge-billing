@@ -4,6 +4,9 @@ import 'dotenv/config';
 import './frameworks/tracing/start';
 import { SQSClient } from '@aws-sdk/client-sqs';
 import { createApp } from './app';
+import { budgetRoutes } from './frameworks/http/routes/budgetRoutes';
+import { BudgetController } from './adapters/controllers/BudgetController';
+import { PostgresBudgetRepository } from './adapters/gateways/PostgresBudgetRepository';
 import { prisma, disconnectPrisma } from './frameworks/database/prismaClient';
 import { databaseReadiness } from './frameworks/database/readinessProbe';
 import { logger } from './frameworks/logging/logger';
@@ -18,6 +21,9 @@ import { SqsMessageSender } from './adapters/messaging/SqsMessageSender';
 import { BillingCommandHandler } from './adapters/messaging/BillingCommandHandler';
 import { PublishPendingMessagesUseCase } from './use-cases/messaging/PublishPendingMessagesUseCase';
 import { GenerateBudgetUseCase } from './use-cases/budgets/GenerateBudgetUseCase';
+import { GetBudgetUseCase } from './use-cases/budgets/GetBudgetUseCase';
+import { DecideBudgetUseCase } from './use-cases/budgets/DecideBudgetUseCase';
+import { IUnitOfWork } from './use-cases/ports/IUnitOfWork';
 
 const PORT = process.env.PORT ?? 3000;
 
@@ -25,12 +31,11 @@ interface Messaging {
   stop(): Promise<void>;
 }
 
-function startMessaging(queues: QueueConfig): Messaging {
+function startMessaging(queues: QueueConfig, unitOfWork: IUnitOfWork): Messaging {
   const sqs = new SQSClient({});
   const sender = new SqsMessageSender(sqs, queues.destinations, new PrometheusIntegrationFailures());
   const relay = new OutboxRelay(new PublishPendingMessagesUseCase(new PrismaOutboxStore(prisma), sender), logger);
 
-  const unitOfWork = new PrismaUnitOfWork(prisma, new AsyncLocalStorageTraceContext());
   const generateBudget = new GenerateBudgetUseCase(unitOfWork);
   const commands = new BillingCommandHandler({
     GenerateBudget: (command) => generateBudget.execute(command),
@@ -51,7 +56,12 @@ function startMessaging(queues: QueueConfig): Messaging {
 
 async function main(): Promise<void> {
   const queues = readQueueConfig();
-  const app = createApp(databaseReadiness(prisma));
+  const unitOfWork = new PrismaUnitOfWork(prisma, new AsyncLocalStorageTraceContext());
+  const budgetController = new BudgetController(
+    new GetBudgetUseCase(new PostgresBudgetRepository(prisma)),
+    new DecideBudgetUseCase(unitOfWork),
+  );
+  const app = createApp(databaseReadiness(prisma), { budgets: budgetRoutes(budgetController) });
   let messaging: Messaging | undefined;
 
   // The HTTP server starts before the database connects, so the probes answer during startup.
@@ -68,7 +78,7 @@ async function main(): Promise<void> {
   await prisma.$connect();
 
   if (queues) {
-    messaging = startMessaging(queues);
+    messaging = startMessaging(queues, unitOfWork);
   } else {
     logger.warn('saga queues are not configured; the service runs without messaging');
   }

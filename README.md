@@ -41,6 +41,10 @@ das do OS Service, para os dois poderem rodar juntos.
 | `GET /ready` | Prontidão; responde 503 se o banco não responde |
 | `GET /metrics` | Métricas no formato do Prometheus |
 | `GET /docs` | Swagger |
+| `GET /service-orders/{id}/budget` | Orçamento da ordem, para o cliente dono ou para funcionários |
+| `PATCH /service-orders/{id}/budget` | Aprovação ou rejeição do orçamento pelo cliente dono |
+
+Quem pode chamar cada rota está em [docs/authorization-matrix.md](docs/authorization-matrix.md).
 
 ## Infraestrutura
 

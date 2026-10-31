@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { Budget } from '../../entities/Budget';
-import { IBudgetRepository, NewBudget } from '../../use-cases/ports/IBudgetRepository';
+import { ConflictError } from '../../entities/errors/AppError';
+import { BudgetStatusChange, IBudgetRepository, NewBudget } from '../../use-cases/ports/IBudgetRepository';
 import { PrismaExecutor } from './prismaExecutor';
 
 type BudgetRow = Prisma.BudgetGetPayload<{ include: { lines: true } }>;
@@ -40,6 +41,26 @@ export class PostgresBudgetRepository implements IBudgetRepository {
       },
       include: { lines: true },
     });
+    return toBudget(row);
+  }
+
+  async findByServiceOrderId(serviceOrderId: string): Promise<Budget | null> {
+    const row = await this.prisma.budget.findUnique({ where: { serviceOrderId }, include: { lines: true } });
+    return row ? toBudget(row) : null;
+  }
+
+  async updateStatus(id: string, change: BudgetStatusChange, expectedVersion: number): Promise<Budget> {
+    // The version in the filter makes the write conditional: a concurrent
+    // change already incremented it, so this one matches no row.
+    const { count } = await this.prisma.budget.updateMany({
+      where: { id, version: expectedVersion },
+      data: { ...change, version: { increment: 1 } },
+    });
+    if (count === 0) {
+      throw new ConflictError('Budget was changed by another request; read it again');
+    }
+
+    const row = await this.prisma.budget.findUniqueOrThrow({ where: { id }, include: { lines: true } });
     return toBudget(row);
   }
 }

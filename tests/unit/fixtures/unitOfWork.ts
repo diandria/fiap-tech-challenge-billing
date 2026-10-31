@@ -1,5 +1,6 @@
 import { IUnitOfWork } from '../../../src/use-cases/ports/IUnitOfWork';
-import { IBudgetRepository } from '../../../src/use-cases/ports/IBudgetRepository';
+import { Budget } from '../../../src/entities/Budget';
+import { BudgetStatusChange, IBudgetRepository } from '../../../src/use-cases/ports/IBudgetRepository';
 import { pendingBudget } from './budget';
 
 export interface FakeRepositories {
@@ -9,7 +10,13 @@ export interface FakeRepositories {
 }
 
 export const makeRepositories = (): FakeRepositories => ({
-  budgets: { create: jest.fn().mockResolvedValue(pendingBudget) },
+  budgets: {
+    create: jest.fn().mockResolvedValue(pendingBudget),
+    findByServiceOrderId: jest.fn().mockResolvedValue(pendingBudget),
+    updateStatus: jest.fn<Promise<Budget>, [string, BudgetStatusChange, number]>(
+      async (_id, change) => ({ ...pendingBudget, ...change, version: pendingBudget.version + 1 }),
+    ),
+  },
   outbox: { add: jest.fn() },
   processedMessages: { markProcessed: jest.fn().mockResolvedValue(true) },
 });
