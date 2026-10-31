@@ -33,6 +33,8 @@ import { RequestPaymentUseCase } from './use-cases/payments/RequestPaymentUseCas
 import { ConfirmPaymentUseCase } from './use-cases/payments/ConfirmPaymentUseCase';
 import { PinoLoggerAdapter } from './adapters/logging/PinoLoggerAdapter';
 import { createPaymentProvider, PaymentProvider } from './frameworks/payments/paymentGatewayFactory';
+import { createCustomerNotifier } from './frameworks/notifications/notifierFactory';
+import { ICustomerNotifier } from './use-cases/ports/ICustomerNotifier';
 import { mockPaymentRoutes } from './frameworks/http/routes/mockPaymentRoutes';
 import { MockPaymentController } from './adapters/controllers/MockPaymentController';
 
@@ -59,12 +61,18 @@ function paymentRoutes(provider: PaymentProvider, getBudget: GetBudgetUseCase, u
   return paymentNotificationRoutes(new PaymentNotificationController(confirmPayment), provider.webhookSecret);
 }
 
-function startMessaging(queues: QueueConfig, unitOfWork: IUnitOfWork, paymentGateway?: IPaymentGateway): Messaging {
+function startMessaging(
+  queues: QueueConfig,
+  unitOfWork: IUnitOfWork,
+  notifier: ICustomerNotifier,
+  paymentGateway?: IPaymentGateway,
+): Messaging {
+  const appLogger = new PinoLoggerAdapter(logger);
   const sqs = new SQSClient({});
   const sender = new SqsMessageSender(sqs, queues.destinations, new PrometheusIntegrationFailures());
   const relay = new OutboxRelay(new PublishPendingMessagesUseCase(new PrismaOutboxStore(prisma), sender), logger);
 
-  const generateBudget = new GenerateBudgetUseCase(unitOfWork);
+  const generateBudget = new GenerateBudgetUseCase(unitOfWork, notifier, appLogger);
   const cancelBudget = new CancelBudgetUseCase(unitOfWork);
   const handlers: CommandHandlers = {
     GenerateBudget: (command) => generateBudget.execute(command),
@@ -77,6 +85,8 @@ function startMessaging(queues: QueueConfig, unitOfWork: IUnitOfWork, paymentGat
       new PostgresBudgetRepository(prisma),
       new PostgresPaymentRepository(prisma),
       paymentGateway,
+      notifier,
+      appLogger,
     );
     handlers.RequestPayment = (command) => requestPayment.execute(command);
   } else {
@@ -101,6 +111,7 @@ function startMessaging(queues: QueueConfig, unitOfWork: IUnitOfWork, paymentGat
 async function main(): Promise<void> {
   const queues = readQueueConfig();
   const paymentProvider = createPaymentProvider();
+  const notifier = createCustomerNotifier(process.env, logger);
 
   const unitOfWork = new PrismaUnitOfWork(prisma, new AsyncLocalStorageTraceContext());
   const budgets = new PostgresBudgetRepository(prisma);
@@ -129,7 +140,7 @@ async function main(): Promise<void> {
   await prisma.$connect();
 
   if (queues) {
-    messaging = startMessaging(queues, unitOfWork, paymentProvider?.gateway);
+    messaging = startMessaging(queues, unitOfWork, notifier, paymentProvider?.gateway);
   } else {
     logger.warn('saga queues are not configured; the service runs without messaging');
   }

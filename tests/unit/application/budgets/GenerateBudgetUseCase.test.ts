@@ -3,6 +3,12 @@ import { MessageEnvelope } from '../../../../src/use-cases/messaging/MessageEnve
 import { makeRepositories, makeUnitOfWork } from '../../fixtures/unitOfWork';
 import { pendingBudget } from '../../fixtures/budget';
 
+function makeNotifier() {
+  return { budgetReady: jest.fn().mockResolvedValue(undefined), paymentRequested: jest.fn() };
+}
+
+const silentLogger = { warn: jest.fn(), error: jest.fn() };
+
 const payload = {
   customer: { id: 'c-1', name: 'Maria Souza', email: 'maria@example.com' },
   lines: [
@@ -25,7 +31,7 @@ describe('GenerateBudgetUseCase', () => {
   it('saves a pending budget and adds BudgetGenerated to the outbox', async () => {
     const repositories = makeRepositories();
 
-    await new GenerateBudgetUseCase(makeUnitOfWork(repositories)).execute(command());
+    await new GenerateBudgetUseCase(makeUnitOfWork(repositories), makeNotifier(), silentLogger).execute(command());
 
     expect(repositories.budgets.create).toHaveBeenCalledWith({
       serviceOrderId: 'os-1',
@@ -44,7 +50,7 @@ describe('GenerateBudgetUseCase', () => {
   it('records the command as processed in the same unit of work', async () => {
     const repositories = makeRepositories();
 
-    await new GenerateBudgetUseCase(makeUnitOfWork(repositories)).execute(command());
+    await new GenerateBudgetUseCase(makeUnitOfWork(repositories), makeNotifier(), silentLogger).execute(command());
 
     expect(repositories.processedMessages.markProcessed).toHaveBeenCalledWith('m-1', 'GenerateBudget');
   });
@@ -53,7 +59,7 @@ describe('GenerateBudgetUseCase', () => {
     const repositories = makeRepositories();
     repositories.processedMessages.markProcessed.mockResolvedValue(false);
 
-    await new GenerateBudgetUseCase(makeUnitOfWork(repositories)).execute(command());
+    await new GenerateBudgetUseCase(makeUnitOfWork(repositories), makeNotifier(), silentLogger).execute(command());
 
     expect(repositories.budgets.create).not.toHaveBeenCalled();
     expect(repositories.outbox.add).not.toHaveBeenCalled();
@@ -64,7 +70,7 @@ describe('GenerateBudgetUseCase', () => {
     const unitOfWork = makeUnitOfWork(repositories);
 
     await expect(
-      new GenerateBudgetUseCase(unitOfWork).execute(command({ customer: { id: 'c-1', name: 'Maria Souza' } })),
+      new GenerateBudgetUseCase(unitOfWork, makeNotifier(), silentLogger).execute(command({ customer: { id: 'c-1', name: 'Maria Souza' } })),
     ).rejects.toThrow('customer.email');
 
     expect(unitOfWork.run).not.toHaveBeenCalled();
@@ -80,21 +86,53 @@ describe('GenerateBudgetUseCase', () => {
     const lines = [{ ...payload.lines[0], ...change }];
 
     await expect(
-      new GenerateBudgetUseCase(makeUnitOfWork(makeRepositories())).execute(command({ lines })),
+      new GenerateBudgetUseCase(makeUnitOfWork(makeRepositories()), makeNotifier(), silentLogger).execute(command({ lines })),
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
   it('rejects a payload whose lines are not a list', async () => {
     await expect(
-      new GenerateBudgetUseCase(makeUnitOfWork(makeRepositories())).execute(command({ lines: 'none' })),
+      new GenerateBudgetUseCase(makeUnitOfWork(makeRepositories()), makeNotifier(), silentLogger).execute(command({ lines: 'none' })),
     ).rejects.toThrow('lines');
   });
 
   it('accepts a budget without lines, with total zero', async () => {
     const repositories = makeRepositories();
 
-    await new GenerateBudgetUseCase(makeUnitOfWork(repositories)).execute(command({ lines: [] }));
+    await new GenerateBudgetUseCase(makeUnitOfWork(repositories), makeNotifier(), silentLogger).execute(command({ lines: [] }));
 
     expect(repositories.budgets.create).toHaveBeenCalledWith(expect.objectContaining({ lines: [], total: 0 }));
+  });
+
+  it('tells the customer the budget is ready once it is stored', async () => {
+    const notifier = makeNotifier();
+
+    await new GenerateBudgetUseCase(makeUnitOfWork(makeRepositories()), notifier, silentLogger).execute(command());
+
+    expect(notifier.budgetReady).toHaveBeenCalledWith(pendingBudget);
+  });
+
+  it('does not tell the customer again for a repeated command', async () => {
+    const repositories = makeRepositories();
+    repositories.processedMessages.markProcessed.mockResolvedValue(false);
+    const notifier = makeNotifier();
+
+    await new GenerateBudgetUseCase(makeUnitOfWork(repositories), notifier, silentLogger).execute(command());
+
+    expect(notifier.budgetReady).not.toHaveBeenCalled();
+  });
+
+  it('logs and keeps the budget when the notifier fails', async () => {
+    const repositories = makeRepositories();
+    const notifier = makeNotifier();
+    notifier.budgetReady.mockRejectedValue(new Error('topic unavailable'));
+    const logger = { warn: jest.fn(), error: jest.fn() };
+
+    await expect(
+      new GenerateBudgetUseCase(makeUnitOfWork(repositories), notifier, logger).execute(command()),
+    ).resolves.toBeUndefined();
+
+    expect(repositories.budgets.create).toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ serviceOrderId: 'os-1' }));
   });
 });

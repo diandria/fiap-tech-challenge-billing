@@ -3,6 +3,8 @@ import { IUnitOfWork } from '../ports/IUnitOfWork';
 import { IBudgetRepository } from '../ports/IBudgetRepository';
 import { IPaymentRepository } from '../ports/IPaymentRepository';
 import { IPaymentGateway } from '../ports/IPaymentGateway';
+import { ICustomerNotifier } from '../ports/ICustomerNotifier';
+import { ILogger } from '../ports/ILogger';
 import { MessageEnvelope } from '../messaging/MessageEnvelope';
 
 export class RequestPaymentUseCase {
@@ -11,6 +13,8 @@ export class RequestPaymentUseCase {
     private readonly budgets: IBudgetRepository,
     private readonly payments: IPaymentRepository,
     private readonly gateway: IPaymentGateway,
+    private readonly notifier: ICustomerNotifier,
+    private readonly logger: ILogger,
   ) {}
 
   /**
@@ -22,6 +26,9 @@ export class RequestPaymentUseCase {
    * of connections. If saving fails after the checkout was created, the command
    * comes back and creates another checkout; the first one is left unused at
    * the provider, which is harmless.
+   *
+   * The customer gets the link after the commit; a notice that fails is logged
+   * and changes nothing.
    */
   async execute(command: MessageEnvelope): Promise<void> {
     const budget = await this.budgets.findByServiceOrderId(command.serviceOrderId);
@@ -41,15 +48,22 @@ export class RequestPaymentUseCase {
       amount: budget.total,
     });
 
-    await this.unitOfWork.run(async ({ payments, processedMessages }) => {
-      if (!(await processedMessages.markProcessed(command.messageId, command.type))) return;
+    const payment = await this.unitOfWork.run(async ({ payments, processedMessages }) => {
+      if (!(await processedMessages.markProcessed(command.messageId, command.type))) return null;
 
-      await payments.create({
+      return payments.create({
         budgetId: budget.id,
         preferenceId: checkout.preferenceId,
         checkoutUrl: checkout.checkoutUrl,
         amount: budget.total,
       });
     });
+
+    if (!payment) return;
+    try {
+      await this.notifier.paymentRequested(budget, payment);
+    } catch (err) {
+      this.logger.warn('customer was not sent the payment link', { serviceOrderId: budget.serviceOrderId, err });
+    }
   }
 }
