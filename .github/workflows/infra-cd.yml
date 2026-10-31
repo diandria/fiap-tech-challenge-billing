@@ -1,0 +1,81 @@
+name: Infra CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/infra-cd.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Two concurrent applies on the same state fail on the S3 lock; this queue
+# serializes them instead.
+concurrency:
+  group: terraform-billing
+  cancel-in-progress: false
+
+env:
+  TF_VERSION: "1.15.6"
+  AWS_REGION: us-east-1
+  DB_IDENTIFIER: car-repair-shop-billing-db
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  apply:
+    name: Apply infrastructure
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      # A real operation, not sts get-caller-identity: when the Learner Lab
+      # revokes the session, sts keeps answering and only real calls are denied.
+      - name: Verify credentials
+        run: |
+          aws ec2 describe-vpcs --max-items 1 > /dev/null 2>&1 || {
+            echo "::error::AWS credentials missing, expired or revoked. Start the lab and update the AWS_* repository secrets."
+            exit 1
+          }
+
+      - name: terraform init
+        run: terraform init -input=false
+
+      - name: terraform apply
+        run: terraform apply -auto-approve -input=false -no-color
+
+      # apply reports "created", not "working".
+      - name: Verify the instance is available and private
+        run: |
+          read -r status public < <(aws rds describe-db-instances \
+            --db-instance-identifier "$DB_IDENTIFIER" \
+            --query 'DBInstances[0].[DBInstanceStatus,PubliclyAccessible]' --output text)
+          echo "status=$status publicly_accessible=$public"
+          [ "$status" = "available" ] || { echo "::error::RDS is $status, expected available"; exit 1; }
+          [ "$public" = "False" ] || { echo "::error::RDS is marked as publicly accessible"; exit 1; }
+
+      - name: Summary
+        run: |
+          {
+            echo "### Billing infrastructure applied"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Endpoint | \`$(terraform output -raw db_endpoint)\` |"
+            echo "| Port | $(terraform output -raw db_port) |"
+            echo "| Database | $(terraform output -raw db_name) |"
+            echo "| Password at | \`$(terraform output -raw db_password_parameter)\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
