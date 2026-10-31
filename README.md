@@ -42,6 +42,43 @@ das do OS Service, para os dois poderem rodar juntos.
 | `GET /metrics` | Métricas no formato do Prometheus |
 | `GET /docs` | Swagger |
 
+## Infraestrutura
+
+O banco do Billing é provisionado por este repositório, na pasta `terraform/`, com estado próprio
+(`billing/terraform.tfstate`, no mesmo bucket dos outros repositórios). Um `apply` aqui nunca toca o banco
+do OS Service, e o contrário também vale. Filas, cluster e registro de imagens são plataforma
+compartilhada e ficam no `infra-k8s`.
+
+| Recurso | Detalhe |
+|---|---|
+| RDS PostgreSQL 16 `car-repair-shop-billing-db` | `db.t3.micro`, criptografado, sem acesso público |
+| Security group | Porta 5432 aberta só para a faixa da VPC |
+| Senha | Gerada pelo Terraform e guardada no SSM em `/car-repair-shop/billing/db/password` |
+
+As pipelines de infraestrutura só rodam quando `terraform/` muda:
+
+| Workflow | Quando | O que faz |
+|---|---|---|
+| `Infra CI` | Pull request | `fmt`, `validate`, `tflint`, `trivy` e a checagem de entrada pública; não precisa de credencial |
+| `Infra CD` | Merge na `main` | `apply` e confirmação de que a instância está disponível e privada |
+| `Infra destroy` | Manual, digitando `production` | `destroy` do ambiente |
+
+O `Infra CD` e o `Infra destroy` usam os segredos `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` e
+`AWS_SESSION_TOKEN` do repositório. As credenciais do Learner Lab expiram a cada sessão, então é preciso
+atualizá-las antes de rodar.
+
+Para validar localmente:
+
+```bash
+cd terraform
+terraform fmt -check -recursive
+terraform init -backend=false
+terraform validate
+tflint --init && tflint
+python3 ../scripts/check-no-public-ingress.py
+trivy config .
+```
+
 ## Testes
 
 ```bash
