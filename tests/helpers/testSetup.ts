@@ -12,6 +12,9 @@ import { paymentNotificationRoutes } from '../../src/frameworks/http/routes/paym
 import { PaymentNotificationController } from '../../src/adapters/controllers/PaymentNotificationController';
 import { ConfirmPaymentUseCase } from '../../src/use-cases/payments/ConfirmPaymentUseCase';
 import { IPaymentGateway } from '../../src/use-cases/ports/IPaymentGateway';
+import { MockPaymentGateway } from '../../src/adapters/payments/MockPaymentGateway';
+import { MockPaymentController } from '../../src/adapters/controllers/MockPaymentController';
+import { mockPaymentRoutes } from '../../src/frameworks/http/routes/mockPaymentRoutes';
 import { PrismaUnitOfWork } from '../../src/adapters/gateways/PrismaUnitOfWork';
 import { AsyncLocalStorageTraceContext } from '../../src/frameworks/logging/AsyncLocalStorageTraceContext';
 import { GetBudgetUseCase } from '../../src/use-cases/budgets/GetBudgetUseCase';
@@ -46,18 +49,24 @@ export const TEST_WEBHOOK_SECRET = 'test-webhook-secret';
 
 const silentLogger = { warn: () => undefined, error: () => undefined };
 
-/** The app wired as in production; the payment routes exist only when a gateway is given. */
+/**
+ * The app wired as in production. With a gateway it gets the payment routes:
+ * the simulated payment route for the mock provider, the webhook otherwise.
+ */
 export function createTestApp(paymentGateway?: IPaymentGateway): Application {
   const unitOfWork = new PrismaUnitOfWork(prisma, new AsyncLocalStorageTraceContext());
   const budgets = new PostgresBudgetRepository(prisma);
   const payments = new PostgresPaymentRepository(prisma);
+  const getBudget = new GetBudgetUseCase(budgets, payments);
 
   const routes: AppRoutes = {
-    budgets: budgetRoutes(new BudgetController(new GetBudgetUseCase(budgets, payments), new DecideBudgetUseCase(unitOfWork))),
+    budgets: budgetRoutes(new BudgetController(getBudget, new DecideBudgetUseCase(unitOfWork))),
   };
   if (paymentGateway) {
     const confirmPayment = new ConfirmPaymentUseCase(unitOfWork, budgets, payments, paymentGateway, silentLogger);
-    routes.payments = paymentNotificationRoutes(new PaymentNotificationController(confirmPayment), TEST_WEBHOOK_SECRET);
+    routes.payments = paymentGateway instanceof MockPaymentGateway
+      ? mockPaymentRoutes(new MockPaymentController(getBudget, confirmPayment, paymentGateway))
+      : paymentNotificationRoutes(new PaymentNotificationController(confirmPayment), TEST_WEBHOOK_SECRET);
   }
   return createApp(databaseReadiness(prisma), routes);
 }

@@ -44,6 +44,8 @@ services:
       DATABASE_URL: "postgresql://billing:billing@postgres:5432/billing?schema=public"
       JWT_SECRET: "dev-secret-change-in-prod"
       OTEL_SERVICE_NAME: "billing-service"
+      # Local runs never charge anyone: the simulated provider stands in for Mercado Pago.
+      PAYMENT_PROVIDER: "mock"
     depends_on:
       postgres:
         condition: service_healthy
