@@ -1,0 +1,20 @@
+import { BudgetLine, calculateTotal } from '../../../src/entities/Budget';
+
+function line(unitPrice: number, quantity: number): BudgetLine {
+  return { kind: 'ITEM', referenceId: 'i-1', description: 'Oil filter', unitPrice, quantity };
+}
+
+describe('calculateTotal', () => {
+  it('sums unit price times quantity across lines', () => {
+    expect(calculateTotal([line(120, 1), line(35.5, 2)])).toBe(191);
+  });
+
+  it('rounds to cents', () => {
+    expect(calculateTotal([line(0.1, 1), line(0.2, 1)])).toBe(0.3);
+    expect(calculateTotal([line(19.999, 3)])).toBe(60);
+  });
+
+  it('is zero for a budget without lines', () => {
+    expect(calculateTotal([])).toBe(0);
+  });
+});

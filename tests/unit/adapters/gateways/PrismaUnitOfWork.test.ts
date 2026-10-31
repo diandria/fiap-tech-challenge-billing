@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaUnitOfWork } from '../../../../src/adapters/gateways/PrismaUnitOfWork';
+import { PostgresBudgetRepository } from '../../../../src/adapters/gateways/PostgresBudgetRepository';
 import { PrismaOutbox } from '../../../../src/adapters/gateways/PrismaOutbox';
 import { PrismaProcessedMessages } from '../../../../src/adapters/gateways/PrismaProcessedMessages';
 
@@ -14,6 +15,7 @@ describe('PrismaUnitOfWork', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(result).toBe('stored');
     const repositories = work.mock.calls[0][0];
+    expect(repositories.budgets).toBeInstanceOf(PostgresBudgetRepository);
     expect(repositories.outbox).toBeInstanceOf(PrismaOutbox);
     expect(repositories.processedMessages).toBeInstanceOf(PrismaProcessedMessages);
   });
