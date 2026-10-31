@@ -1,4 +1,6 @@
-import { BudgetLine, calculateTotal } from '../../../src/entities/Budget';
+import { BudgetLine, calculateTotal, decide } from '../../../src/entities/Budget';
+import { ValidationError } from '../../../src/entities/errors/AppError';
+import { pendingBudget } from '../fixtures/budget';
 
 function line(unitPrice: number, quantity: number): BudgetLine {
   return { kind: 'ITEM', referenceId: 'i-1', description: 'Oil filter', unitPrice, quantity };
@@ -16,5 +18,20 @@ describe('calculateTotal', () => {
 
   it('is zero for a budget without lines', () => {
     expect(calculateTotal([])).toBe(0);
+  });
+});
+
+describe('decide', () => {
+  const decidedAt = new Date('2026-10-31T12:00:00.000Z');
+
+  it.each(['APPROVED', 'REJECTED'] as const)('moves a pending budget to %s and records when', (decision) => {
+    const decided = decide(pendingBudget, decision, decidedAt);
+
+    expect(decided.status).toBe(decision);
+    expect(decided.decidedAt).toEqual(decidedAt);
+  });
+
+  it.each(['APPROVED', 'REJECTED', 'CANCELLED'] as const)('refuses to decide a %s budget', (status) => {
+    expect(() => decide({ ...pendingBudget, status }, 'APPROVED', decidedAt)).toThrow(ValidationError);
   });
 });
