@@ -1,4 +1,4 @@
-import { BudgetLine, calculateTotal, decide } from '../../../src/entities/Budget';
+import { BudgetLine, calculateTotal, cancel, decide } from '../../../src/entities/Budget';
 import { ValidationError } from '../../../src/entities/errors/AppError';
 import { pendingBudget } from '../fixtures/budget';
 
@@ -33,5 +33,17 @@ describe('decide', () => {
 
   it.each(['APPROVED', 'REJECTED', 'CANCELLED'] as const)('refuses to decide a %s budget', (status) => {
     expect(() => decide({ ...pendingBudget, status }, 'APPROVED', decidedAt)).toThrow(ValidationError);
+  });
+});
+
+describe('cancel', () => {
+  it.each(['PENDING_APPROVAL', 'APPROVED'] as const)('moves pending and approved budgets to CANCELLED (%s)', (status) => {
+    expect(cancel({ ...pendingBudget, status }).status).toBe('CANCELLED');
+  });
+
+  it.each(['REJECTED', 'CANCELLED'] as const)('leaves rejected and cancelled budgets unchanged (%s)', (status) => {
+    const budget = { ...pendingBudget, status };
+
+    expect(cancel(budget)).toBe(budget);
   });
 });
