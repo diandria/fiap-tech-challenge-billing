@@ -15,9 +15,20 @@ describe('readMercadoPagoConfig', () => {
   it('returns the credentials and the notification url when all are set', () => {
     expect(readMercadoPagoConfig(complete)).toEqual({
       credentials: { clientId: 'client-id', clientSecret: 'client-secret' },
+      environment: 'test',
       notificationUrl: 'https://gateway.example.com/payments/notifications',
       webhookSecret: 'webhook-secret',
     });
+  });
+
+  // Test is the default so that forgetting the variable can never mean real charges.
+  it('reads the environment, test unless production is set on purpose', () => {
+    expect(readMercadoPagoConfig({ ...complete, MERCADO_PAGO_ENVIRONMENT: 'production' })?.environment).toBe('production');
+    expect(readMercadoPagoConfig({ ...complete, MERCADO_PAGO_ENVIRONMENT: 'test' })?.environment).toBe('test');
+  });
+
+  it('refuses an unknown environment instead of guessing', () => {
+    expect(() => readMercadoPagoConfig({ ...complete, MERCADO_PAGO_ENVIRONMENT: 'sandbox' })).toThrow('MERCADO_PAGO_ENVIRONMENT');
   });
 
   it('throws naming the missing variable when only part is set', () => {

@@ -16,4 +16,7 @@ data:
   # customer shares one budget-decision rate-limit bucket.
   TRUST_PROXY_HOPS: "1"
   PAYMENT_PROVIDER: "mercado-pago"
+  # Test on purpose: only tokens Mercado Pago marks as not live are used, so
+  # this environment can never create a real charge.
+  MERCADO_PAGO_ENVIRONMENT: "test"
   NOTIFICATION_CHANNEL: "sns"
