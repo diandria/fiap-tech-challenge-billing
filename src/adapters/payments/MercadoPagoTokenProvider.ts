@@ -3,9 +3,16 @@ export interface MercadoPagoCredentials {
   clientSecret: string;
 }
 
+/**
+ * test: only tokens Mercado Pago marks as not live are used, so no real charge
+ * can happen. production: real charges, set on purpose.
+ */
+export type MercadoPagoEnvironment = 'test' | 'production';
+
 interface TokenResponse {
   access_token: string;
   expires_in: number;
+  live_mode?: boolean;
 }
 
 const TOKEN_URL = 'https://api.mercadopago.com/oauth/token';
@@ -22,6 +29,7 @@ export class MercadoPagoTokenProvider {
 
   constructor(
     private readonly credentials: MercadoPagoCredentials,
+    private readonly environment: MercadoPagoEnvironment,
     private readonly fetchFn: typeof fetch = fetch,
     private readonly now: () => Date = () => new Date(),
   ) {}
@@ -39,6 +47,7 @@ export class MercadoPagoTokenProvider {
         client_id: this.credentials.clientId,
         client_secret: this.credentials.clientSecret,
         grant_type: 'client_credentials',
+        test_token: this.environment === 'test' ? 'true' : 'false',
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
@@ -47,6 +56,14 @@ export class MercadoPagoTokenProvider {
     }
 
     const body = (await response.json()) as TokenResponse;
+    // Anything but an explicit "not live" counts as live: a production
+    // credential set by mistake must fail here, before a checkout exists.
+    if (this.environment === 'test' && body.live_mode !== false) {
+      throw new Error(
+        `Mercado Pago returned a token not marked as test (live_mode=${String(body.live_mode)}) `
+        + 'while MERCADO_PAGO_ENVIRONMENT is test; no charge is created with it',
+      );
+    }
     this.cached = {
       token: body.access_token,
       expiresAt: this.now().getTime() + body.expires_in * 1000,

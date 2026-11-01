@@ -74,6 +74,13 @@ Billing cria a preferência com o total do orçamento e guarda o link de pagamen
 | `MERCADO_PAGO_CLIENT_ID` e `MERCADO_PAGO_CLIENT_SECRET` | Credenciais da aplicação, trocadas por um token de curta duração (`client_credentials`) |
 | `MERCADO_PAGO_NOTIFICATION_URL` | Endereço público de `POST /payments/notifications`, chamado pelo Mercado Pago |
 | `MERCADO_PAGO_WEBHOOK_SECRET` | Segredo do webhook da aplicação, usado para conferir a assinatura de cada notificação |
+| `MERCADO_PAGO_ENVIRONMENT` | `test` (padrão) ou `production`. Qualquer outro valor impede o serviço de subir |
+
+**Em `test`, nenhuma cobrança real é possível.** O pedido de token vai com `test_token: "true"`, e o
+Billing só usa o token se a resposta do Mercado Pago vier com `live_mode: false`. Um token marcado como
+real, ou uma resposta sem esse campo, é recusado antes de qualquer cobrança ser criada, e o comando
+`RequestPayment` falha como qualquer outro erro do provedor. O padrão é `test` para que esquecer a
+variável nunca signifique dinheiro de verdade. O ConfigMap do Kubernetes também fixa `test`.
 
 Quando chega uma notificação assinada, o Billing consulta o pagamento na API e responde à saga com
 `PaymentConfirmed` ou `PaymentFailed`. Pagamento aprovado com valor diferente do orçamento conta como
@@ -218,6 +225,11 @@ De onde vem cada valor:
 Os segredos são mascarados no log assim que lidos. Como no OS Service, os únicos segredos do GitHub são os
 três da AWS; o resto vem do SSM, para não existir uma segunda cópia que possa divergir. Cada deploy fica
 registrado em **Deployments → production**.
+
+Com `PAYMENT_PROVIDER: "mock"` no `k8s/01-config/configmap.yaml`, o CD sobe o Billing com o pagamento
+simulado: as credenciais do Mercado Pago deixam de ser exigidas e não são gravadas no cluster. É o plano B
+aceito pela coordenação para quando o sandbox do Mercado Pago não estiver disponível. O padrão continua
+sendo `mercado-pago`.
 
 As credenciais do Mercado Pago não vêm do Terraform para nunca passarem por `tfvars` nem pelo estado.
 Para cadastrá-las numa conta nova:
