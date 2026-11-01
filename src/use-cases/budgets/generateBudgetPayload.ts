@@ -62,6 +62,6 @@ export function readGenerateBudgetPayload(payload: Record<string, unknown>): Gen
   if (!Array.isArray(payload.lines)) throw new ValidationError('lines must be a list');
   return {
     customer: readCustomer(payload.customer),
-    lines: payload.lines.map(readLine),
+    lines: payload.lines.map((line, index) => readLine(line, index)),
   };
 }
