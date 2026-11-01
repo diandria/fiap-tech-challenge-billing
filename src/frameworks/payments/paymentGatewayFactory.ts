@@ -37,7 +37,7 @@ export function createPaymentProvider(env: Record<string, string | undefined> = 
   return {
     kind: 'mercado-pago',
     gateway: new MercadoPagoPaymentGateway(
-      new MercadoPagoTokenProvider(config.credentials),
+      new MercadoPagoTokenProvider(config.credentials, config.environment),
       new PrometheusIntegrationFailures(),
       new PinoLoggerAdapter(logger),
       { notificationUrl: config.notificationUrl },

@@ -1,7 +1,8 @@
-import { MercadoPagoCredentials } from '../../adapters/payments/MercadoPagoTokenProvider';
+import { MercadoPagoCredentials, MercadoPagoEnvironment } from '../../adapters/payments/MercadoPagoTokenProvider';
 
 export interface MercadoPagoConfig {
   credentials: MercadoPagoCredentials;
+  environment: MercadoPagoEnvironment;
   notificationUrl: string;
   /** Signs every notification; shown in the application's webhook settings. */
   webhookSecret: string;
@@ -31,7 +32,15 @@ export function readMercadoPagoConfig(env: Record<string, string | undefined> = 
       clientId: env.MERCADO_PAGO_CLIENT_ID as string,
       clientSecret: env.MERCADO_PAGO_CLIENT_SECRET as string,
     },
+    environment: readEnvironment(env.MERCADO_PAGO_ENVIRONMENT),
     notificationUrl: env.MERCADO_PAGO_NOTIFICATION_URL as string,
     webhookSecret: env.MERCADO_PAGO_WEBHOOK_SECRET as string,
   };
+}
+
+/** Test unless production is set on purpose: a forgotten variable never means real charges. */
+function readEnvironment(value: string | undefined): MercadoPagoEnvironment {
+  if (value === undefined || value === 'test') return 'test';
+  if (value === 'production') return 'production';
+  throw new Error(`Unknown MERCADO_PAGO_ENVIRONMENT "${value}"; use test or production`);
 }
