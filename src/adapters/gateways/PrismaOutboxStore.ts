@@ -26,6 +26,10 @@ export class PrismaOutboxStore implements IOutboxStore {
     }));
   }
 
+  async countPending(): Promise<number> {
+    return this.prisma.outboxMessage.count({ where: { publishedAt: null } });
+  }
+
   async markPublished(messageId: string): Promise<void> {
     await this.prisma.outboxMessage.update({
       where: { id: messageId },

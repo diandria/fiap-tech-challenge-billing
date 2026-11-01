@@ -1,0 +1,252 @@
+name: CD
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+# One deploy at a time: two consecutive merges would compete for the cluster.
+# Named per service, so a billing deploy never waits for the OS one.
+concurrency:
+  group: deploy-billing
+  cancel-in-progress: false
+
+jobs:
+  image:
+    name: Build and push image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      # `sts get-caller-identity` keeps answering after the Learner Lab session
+      # is revoked; only a call touching a real resource reveals the expiry.
+      - name: Verify credentials are usable
+        run: aws ec2 describe-vpcs --max-items 1 > /dev/null
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve image tag
+        id: meta
+        run: |
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          echo "registry=${{ steps.ecr.outputs.registry }}/car-repair-shop-billing" >> "$GITHUB_OUTPUT"
+
+      # Tagged by SHA: with `latest` a rollback is impossible and a restarting
+      # pod can come back on a different image. The ECR repository is IMMUTABLE,
+      # so pushing the same SHA twice fails instead of replacing silently.
+      - name: Build and push
+        env:
+          IMAGE: ${{ steps.meta.outputs.registry }}
+          TAG: ${{ steps.meta.outputs.sha }}
+        run: |
+          docker build -t "$IMAGE:$TAG" .
+          docker push "$IMAGE:$TAG"
+
+      - name: Confirm the image is in the registry
+        env:
+          TAG: ${{ steps.meta.outputs.sha }}
+        run: |
+          aws ecr describe-images \
+            --repository-name car-repair-shop-billing \
+            --image-ids imageTag="$TAG" \
+            --query 'imageDetails[0].imagePushedAt' --output text
+
+  deploy:
+    name: Deploy to EKS
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    # `main` is production; there is no staging. No protection rule: a
+    # required reviewer would stall the CD; the safety net is the required PR
+    # plus automatic rollback.
+    environment:
+      name: production
+      url: ${{ steps.config.outputs.gateway }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: us-east-1
+
+      - name: Connect to the cluster
+        run: aws eks update-kubeconfig --name car-repair-shop --region us-east-1
+
+      - name: Resolve image reference
+        id: meta
+        run: |
+          set -euo pipefail
+          echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          REPO=$(aws ecr describe-repositories --repository-names car-repair-shop-billing \
+            --query 'repositories[0].repositoryUri' --output text)
+          echo "image=$REPO" >> "$GITHUB_OUTPUT"
+
+      # Everything comes from AWS, nothing from GitHub: the database from this
+      # repository's Terraform, the queues and the gateway from infra-k8s, the
+      # JWT secret from the functions' Terraform and the Mercado Pago
+      # credentials from parameters registered by hand.
+      - name: Read configuration from SSM and AWS
+        id: config
+        run: |
+          set -euo pipefail
+
+          db_attribute() {
+            aws rds describe-db-instances --db-instance-identifier car-repair-shop-billing-db \
+              --query "DBInstances[0].$1" --output text 2>/dev/null || true
+          }
+          parameter() {
+            aws ssm get-parameter --name "$1" --with-decryption \
+              --query 'Parameter.Value' --output text 2>/dev/null || true
+          }
+          queue_url() {
+            aws sqs get-queue-url --queue-name "car-repair-shop-$1.fifo" --query QueueUrl --output text 2>/dev/null || true
+          }
+
+          DB_HOST=$(db_attribute Endpoint.Address)
+          # From RDS itself: a hardcoded value yields an invalid DATABASE_URL
+          # and a CrashLoop that does not name its cause.
+          DB_USER=$(db_attribute MasterUsername)
+          DB_NAME=$(db_attribute DBName)
+          DB_PASS=$(parameter /car-repair-shop/billing/db/password)
+          JWT=$(parameter /car-repair-shop/auth/jwt-secret)
+          MP_CLIENT_ID=$(parameter /car-repair-shop/billing/mercado-pago-client-id)
+          MP_CLIENT_SECRET=$(parameter /car-repair-shop/billing/mercado-pago-client-secret)
+          MP_WEBHOOK_SECRET=$(parameter /car-repair-shop/billing/mercado-pago-webhook-secret)
+          TOPIC=$(aws sns list-topics \
+            --query "Topics[?contains(TopicArn, 'car-repair-shop-service-order-events')].TopicArn | [0]" \
+            --output text)
+          QUEUE_COMMANDS=$(queue_url billing-commands)
+          QUEUE_REPLIES=$(queue_url saga-replies)
+          # Mercado Pago calls the webhook through the gateway, whose id changes
+          # on every recreation.
+          GATEWAY=$(aws apigatewayv2 get-apis \
+            --query "Items[?Name=='car-repair-shop'].ApiEndpoint | [0]" --output text)
+
+          # Fail here, not later with a CrashLoop three layers from the cause.
+          for name in DB_HOST DB_USER DB_NAME DB_PASS JWT MP_CLIENT_ID MP_CLIENT_SECRET \
+                      MP_WEBHOOK_SECRET TOPIC QUEUE_COMMANDS QUEUE_REPLIES GATEWAY; do
+            value="${!name}"
+            if [ -z "$value" ] || [ "$value" = "None" ]; then
+              echo "::error::required value missing or empty: $name"
+              exit 1
+            fi
+          done
+
+          echo "::add-mask::$DB_PASS"
+          echo "::add-mask::$JWT"
+          echo "::add-mask::$MP_CLIENT_ID"
+          echo "::add-mask::$MP_CLIENT_SECRET"
+          echo "::add-mask::$MP_WEBHOOK_SECRET"
+
+          echo "gateway=$GATEWAY" >> "$GITHUB_OUTPUT"
+          {
+            echo "DATABASE_URL=postgresql://$DB_USER:$DB_PASS@$DB_HOST:5432/$DB_NAME?schema=public"
+            echo "JWT_SECRET=$JWT"
+            echo "MERCADO_PAGO_CLIENT_ID=$MP_CLIENT_ID"
+            echo "MERCADO_PAGO_CLIENT_SECRET=$MP_CLIENT_SECRET"
+            echo "MERCADO_PAGO_WEBHOOK_SECRET=$MP_WEBHOOK_SECRET"
+            echo "MERCADO_PAGO_NOTIFICATION_URL=$GATEWAY/payments/notifications"
+            echo "SNS_TOPIC_ARN=$TOPIC"
+            echo "QUEUE_URL_BILLING_COMMANDS=$QUEUE_COMMANDS"
+            echo "QUEUE_URL_SAGA_REPLIES=$QUEUE_REPLIES"
+          } >> "$GITHUB_ENV"
+
+      - name: Apply configuration and secrets
+        run: |
+          set -euo pipefail
+
+          kubectl create configmap billing-runtime -n car-repair-shop-billing \
+            --from-literal=SNS_TOPIC_ARN="$SNS_TOPIC_ARN" \
+            --from-literal=QUEUE_URL_BILLING_COMMANDS="$QUEUE_URL_BILLING_COMMANDS" \
+            --from-literal=QUEUE_URL_SAGA_REPLIES="$QUEUE_URL_SAGA_REPLIES" \
+            --from-literal=MERCADO_PAGO_NOTIFICATION_URL="$MERCADO_PAGO_NOTIFICATION_URL" \
+            --from-literal=OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo.observability.svc.cluster.local:4318 \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create secret generic billing-secret -n car-repair-shop-billing \
+            --from-literal=DATABASE_URL="$DATABASE_URL" \
+            --from-literal=JWT_SECRET="$JWT_SECRET" \
+            --from-literal=MERCADO_PAGO_CLIENT_ID="$MERCADO_PAGO_CLIENT_ID" \
+            --from-literal=MERCADO_PAGO_CLIENT_SECRET="$MERCADO_PAGO_CLIENT_SECRET" \
+            --from-literal=MERCADO_PAGO_WEBHOOK_SECRET="$MERCADO_PAGO_WEBHOOK_SECRET" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl apply -f k8s/01-config/ -f k8s/02-service/ -f k8s/03-app/
+
+      # A Job, not an initContainer: it runs once, before any new pod takes
+      # traffic. An initContainer would migrate once per replica, in parallel.
+      - name: Run database migrations
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha }}"
+
+          # A Job is immutable: without deleting the previous one, apply fails.
+          kubectl delete job billing-migrate -n car-repair-shop-billing --ignore-not-found --wait=true
+
+          # Same image as the application, so the schema matches the code.
+          sed "s|image: car-repair-shop-billing:latest|image: $IMAGE|" k8s/04-jobs/migrate.yaml \
+            | kubectl apply -f -
+
+          if ! kubectl wait --for=condition=complete --timeout=180s \
+               job/billing-migrate -n car-repair-shop-billing; then
+            echo "::error::migration failed; no new pod was deployed"
+            kubectl logs job/billing-migrate -n car-repair-shop-billing --tail=50 || true
+            exit 1
+          fi
+
+          kubectl logs job/billing-migrate -n car-repair-shop-billing --tail=20
+
+      - name: Deploy the new image
+        id: rollout
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.sha }}"
+
+          kubectl set image deployment/billing-api api="$IMAGE" -n car-repair-shop-billing
+          kubectl rollout status deployment/billing-api -n car-repair-shop-billing --timeout=300s
+
+      # Ends with `exit 1` after undoing: a green workflow would hide that the
+      # deploy failed.
+      - name: Roll back on failure
+        if: failure() && steps.rollout.outcome == 'failure'
+        run: |
+          echo "::error::rollout failed; undoing to the previous revision"
+          kubectl rollout undo deployment/billing-api -n car-repair-shop-billing
+          kubectl rollout status deployment/billing-api -n car-repair-shop-billing --timeout=180s
+          kubectl get pods -n car-repair-shop-billing -o wide
+          exit 1
+
+      # Inside the pod, not through the gateway: there, /health belongs to the
+      # OS Service. /ready also proves the database answers with the
+      # credentials just written.
+      - name: Smoke check inside the pod
+        run: |
+          set -euo pipefail
+          kubectl exec deploy/billing-api -n car-repair-shop-billing -- \
+            wget -qO- http://localhost:3000/ready
+          echo
+          echo "billing answered /ready"

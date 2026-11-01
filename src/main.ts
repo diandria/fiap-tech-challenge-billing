@@ -15,6 +15,7 @@ import { databaseReadiness } from './frameworks/database/readinessProbe';
 import { logger } from './frameworks/logging/logger';
 import { readQueueConfig, QueueConfig } from './frameworks/messaging/queueConfig';
 import { OutboxRelay } from './frameworks/messaging/OutboxRelay';
+import { registerOutboxBacklog } from './frameworks/metrics/outboxBacklog';
 import { SqsQueuePoller } from './frameworks/messaging/SqsQueuePoller';
 import { PrometheusIntegrationFailures } from './frameworks/metrics/PrometheusIntegrationFailures';
 import { AsyncLocalStorageTraceContext } from './frameworks/logging/AsyncLocalStorageTraceContext';
@@ -70,7 +71,9 @@ function startMessaging(
   const appLogger = new PinoLoggerAdapter(logger);
   const sqs = new SQSClient({});
   const sender = new SqsMessageSender(sqs, queues.destinations, new PrometheusIntegrationFailures());
-  const relay = new OutboxRelay(new PublishPendingMessagesUseCase(new PrismaOutboxStore(prisma), sender), logger);
+  const outbox = new PrismaOutboxStore(prisma);
+  const relay = new OutboxRelay(new PublishPendingMessagesUseCase(outbox, sender), logger);
+  registerOutboxBacklog(() => outbox.countPending(), logger);
 
   const generateBudget = new GenerateBudgetUseCase(unitOfWork, notifier, appLogger);
   const cancelBudget = new CancelBudgetUseCase(unitOfWork);
