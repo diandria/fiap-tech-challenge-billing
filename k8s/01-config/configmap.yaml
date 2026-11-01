@@ -15,7 +15,7 @@ data:
   # One hop: the API Gateway. Without it req.ip is a gateway ENI and every
   # customer shares one budget-decision rate-limit bucket.
   TRUST_PROXY_HOPS: "1"
-  PAYMENT_PROVIDER: "mercado-pago"
+  PAYMENT_PROVIDER: "mock"
   # Test on purpose: only tokens Mercado Pago marks as not live are used, so
   # this environment can never create a real charge.
   MERCADO_PAGO_ENVIRONMENT: "test"
