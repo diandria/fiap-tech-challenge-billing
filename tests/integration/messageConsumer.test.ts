@@ -1,7 +1,7 @@
 import pino from 'pino';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { connectTestDB, disconnectTestDB, clearTestDB, prisma } from '../helpers/testSetup';
-import { startLocalStack, stopLocalStack, createFifoQueue, receiveAll, FifoQueue } from '../helpers/localstack';
+import { startLocalStack, stopLocalStack, createFifoQueue, receiveAll, pollUntilDeadLettered, FifoQueue } from '../helpers/localstack';
 import { PrismaUnitOfWork } from '../../src/adapters/gateways/PrismaUnitOfWork';
 import { BillingCommandHandler } from '../../src/adapters/messaging/BillingCommandHandler';
 import { SqsQueuePoller } from '../../src/frameworks/messaging/SqsQueuePoller';
@@ -101,9 +101,7 @@ describe('Billing command consumer', () => {
     const poller = new SqsQueuePoller(sqs, { name: 'billing-commands', url: queue.url }, recordingHandler([]), silentLog, { waitTimeSeconds: 2 });
 
     // WHEN
-    for (let attempt = 0; attempt < 7; attempt++) {
-      await poller.pollOnce();
-    }
+    await pollUntilDeadLettered(sqs, poller, queue.deadLetterUrl);
 
     // THEN
     const deadLetters = await receiveAll(sqs, queue.deadLetterUrl, 2);
