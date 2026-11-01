@@ -90,6 +90,15 @@ describe('GenerateBudgetUseCase', () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
+  // The position tells whoever reads the dead-letter queue which line broke the contract.
+  it('names the invalid line by its position', async () => {
+    const lines = [payload.lines[0], { ...payload.lines[0], quantity: 0 }];
+
+    await expect(
+      new GenerateBudgetUseCase(makeUnitOfWork(makeRepositories()), makeNotifier(), silentLogger).execute(command({ lines })),
+    ).rejects.toThrow('lines[1].quantity must be a positive integer');
+  });
+
   it('rejects a payload whose lines are not a list', async () => {
     await expect(
       new GenerateBudgetUseCase(makeUnitOfWork(makeRepositories()), makeNotifier(), silentLogger).execute(command({ lines: 'none' })),
