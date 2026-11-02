@@ -226,10 +226,11 @@ Os segredos são mascarados no log assim que lidos. Como no OS Service, os únic
 três da AWS; o resto vem do SSM, para não existir uma segunda cópia que possa divergir. Cada deploy fica
 registrado em **Deployments → production**.
 
-Com `PAYMENT_PROVIDER: "mock"` no `k8s/01-config/configmap.yaml`, o CD sobe o Billing com o pagamento
-simulado: as credenciais do Mercado Pago deixam de ser exigidas e não são gravadas no cluster. É o plano B
-aceito pela coordenação para quando o sandbox do Mercado Pago não estiver disponível. O padrão continua
-sendo `mercado-pago`.
+O provedor do ambiente implantado vem de `PAYMENT_PROVIDER`, no `k8s/01-config/configmap.yaml`, e hoje
+está em `mock`: o CD sobe o Billing com o pagamento simulado, sem exigir as credenciais do Mercado Pago e
+sem gravá-las no cluster. É o plano B aceito pela coordenação enquanto o sandbox do Mercado Pago não está
+disponível. Para voltar ao Mercado Pago, troque o valor para `mercado-pago` e cadastre as credenciais no
+SSM com os comandos abaixo.
 
 As credenciais do Mercado Pago não vêm do Terraform para nunca passarem por `tfvars` nem pelo estado.
 Para cadastrá-las numa conta nova:
