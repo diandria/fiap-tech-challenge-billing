@@ -4,7 +4,8 @@ Orçamento e pagamento das ordens de serviço da oficina. É um dos três micros
 da Fase 4, ao lado do OS Service e do Execution Service.
 
 O serviço gera o orçamento de uma ordem a partir das linhas que o OS Service envia, registra a decisão
-do cliente e cobra o orçamento aprovado pelo Mercado Pago. Ele conversa com os outros serviços só pelas
+do cliente e cobra o orçamento aprovado no provedor de pagamento, o [Payment Service](https://github.com/diandria/fiap-tech-challenge-payment), que faz o papel do Mercado
+Pago. Ele conversa com os outros serviços só pelas
 filas da saga; as rotas HTTP são as que o cliente, os funcionários e o provedor de pagamento chamam.
 
 A arquitetura do serviço, com o diagrama, as mensagens que ele consome e produz e o modelo de dados, está
@@ -18,7 +19,7 @@ A saga é orquestrada pelo OS Service. O Billing é o participante das etapas de
 1. Recebe `GenerateBudget` com as linhas da ordem, cria o orçamento e responde `BudgetGenerated`.
 2. O cliente aprova ou rejeita pelo `PATCH /service-orders/{id}/budget`, e o Billing responde
    `BudgetApproved` ou `BudgetRejected`.
-3. Recebe `RequestPayment`, cria a cobrança no Mercado Pago e espera a notificação do pagamento.
+3. Recebe `RequestPayment`, cria a cobrança no provedor de pagamento e espera a notificação do pagamento.
 4. Com a notificação, responde `PaymentConfirmed` ou `PaymentFailed`.
 5. Numa compensação, recebe `CancelBudget` e responde `BudgetCancelled`.
 
@@ -32,6 +33,7 @@ ordem como grupo de mensagens. As tabelas completas estão em [docs/architecture
 | [fiap-tech-challenge](https://github.com/diandria/fiap-tech-challenge) | OS Service e documentação central |
 | fiap-tech-challenge-billing | Este serviço |
 | [fiap-tech-challenge-execution](https://github.com/diandria/fiap-tech-challenge-execution) | Execution Service |
+| [fiap-tech-challenge-payment](https://github.com/diandria/fiap-tech-challenge-payment) | Payment Service, o provedor de pagamento |
 | [fiap-tech-challenge-infra-k8s](https://github.com/diandria/fiap-tech-challenge-infra-k8s) | Cluster, gateway, filas e observabilidade |
 | [fiap-tech-challenge-infra-db](https://github.com/diandria/fiap-tech-challenge-infra-db) | Banco do OS Service |
 | [fiap-tech-challenge-lambda](https://github.com/diandria/fiap-tech-challenge-lambda) | Funções de autenticação e notificação |
@@ -65,9 +67,15 @@ Quem pode chamar cada rota está em [docs/authorization-matrix.md](docs/authoriz
 
 ## Pagamento
 
-O orçamento aprovado é cobrado pelo Checkout Pro do Mercado Pago. Quando o OS manda `RequestPayment`, o
-Billing cria a preferência com o total do orçamento e guarda o link de pagamento, que o cliente vê em
-`GET /service-orders/{id}/budget`.
+O orçamento aprovado é cobrado no provedor de pagamento, pelo contrato do Checkout Pro do Mercado Pago. No
+ambiente, o provedor é o [Payment Service](https://github.com/diandria/fiap-tech-challenge-payment), um simulador desse contrato: o Mercado Pago não tem
+vínculo com a FIAP, as credenciais de teste não puderam ser geradas, e a coordenação orientou criar um
+serviço de pagamento simples que imite o fluxo, com um token próprio. O Billing usa o mesmo adaptador nos
+dois casos; só mudam `MERCADO_PAGO_API_URL` e as credenciais.
+
+Quando o OS manda `RequestPayment`, o Billing troca as credenciais dele por um token no provedor
+(`client_credentials`), cria a preferência com o total do orçamento usando esse token e guarda o link de
+pagamento, que o cliente vê em `GET /service-orders/{id}/budget`.
 
 | Variável | Para que serve |
 |---|---|
@@ -102,7 +110,9 @@ simulado.
 `PAYMENT_PROVIDER` aceita `mercado-pago` ou `mock`; outro valor impede o serviço de subir. Sem a variável, o
 serviço usa o Mercado Pago quando as variáveis dele estão definidas.
 
-### Mercado Pago no ambiente de testes
+### Usar o Mercado Pago real
+
+Para trocar o Payment Service pelo Mercado Pago, no ambiente de testes dele:
 
 1. Em **Suas integrações**, no Mercado Pago Developers, crie uma aplicação para Checkout Pro e copie o
    Client ID e o Client Secret dela, na tela **Credenciais**.
@@ -111,11 +121,12 @@ serviço usa o Mercado Pago quando as variáveis dele estão definidas.
    **Salvar**. A assinatura secreta gerada é o `MERCADO_PAGO_WEBHOOK_SECRET`. O endereço do gateway muda a
    cada recriação do ambiente, então essa URL precisa ser atualizada a cada sessão.
 3. Em **Contas de teste**, crie uma conta de vendedor e uma de comprador, as duas do Brasil.
-4. Cadastre os três valores no SSM com os comandos da seção [CI/CD](#cicd) e rode o CD de novo.
+4. Cadastre os três valores no SSM, aponte o CD para esses parâmetros no lugar de `/car-repair-shop/payment/*`,
+   remova `MERCADO_PAGO_API_URL` do ConfigMap e rode o CD de novo.
 5. Para pagar, entre com a conta de teste de comprador, abra o link do orçamento e use um dos cartões de
    teste da documentação do Mercado Pago. Com o titular `APRO` o pagamento é aprovado; com `OTHE`, recusado.
 
-Ainda falta confirmar no sandbox:
+Pontos a confirmar no sandbox antes de usar o Mercado Pago real:
 
 - Se a rota de token aceita `client_credentials` com as credenciais da aplicação. Se não aceitar, a RFC-006
   prevê voltar para o token da aplicação guardado como segredo.
@@ -218,7 +229,8 @@ De onde vem cada valor:
 | Endereço, usuário e nome do banco | Instância `car-repair-shop-billing-db`, criada pelo `terraform/` deste repositório |
 | Senha do banco | SSM `/car-repair-shop/billing/db/password`, escrita pelo mesmo Terraform |
 | `JWT_SECRET` | SSM `/car-repair-shop/auth/jwt-secret`, escrito pelo Terraform das functions |
-| Credenciais do Mercado Pago | SSM `/car-repair-shop/billing/mercado-pago-client-id`, `.../mercado-pago-client-secret` e `.../mercado-pago-webhook-secret`, cadastrados à mão |
+| Credenciais no provedor de pagamento | SSM `/car-repair-shop/payment/client-id`, `client-secret` e `webhook-secret`, criados pelo Terraform do `infra-k8s`; o CD do Payment Service lê os mesmos |
+| `MERCADO_PAGO_API_URL` | ConfigMap: o endereço interno do Payment Service no cluster |
 | Filas `billing-commands` e `saga-replies` | `infra-k8s` |
 | Tópico de avisos ao cliente | `car-repair-shop-service-order-events`, das functions |
 | `MERCADO_PAGO_NOTIFICATION_URL` | Endereço do API Gateway mais `/payments/notifications` |
@@ -227,20 +239,9 @@ Os segredos são mascarados no log assim que lidos. Como no OS Service, os únic
 três da AWS; o resto vem do SSM, para não existir uma segunda cópia que possa divergir. Cada deploy fica
 registrado em **Deployments → production**.
 
-O provedor do ambiente implantado vem de `PAYMENT_PROVIDER`, no `k8s/01-config/configmap.yaml`, e hoje
-está em `mock`: o CD sobe o Billing com o pagamento simulado, sem exigir as credenciais do Mercado Pago e
-sem gravá-las no cluster. É o plano B aceito pela coordenação enquanto o sandbox do Mercado Pago não está
-disponível. Para voltar ao Mercado Pago, troque o valor para `mercado-pago` e cadastre as credenciais no
-SSM com os comandos abaixo.
-
-As credenciais do Mercado Pago não vêm do Terraform para nunca passarem por `tfvars` nem pelo estado.
-Para cadastrá-las numa conta nova:
-
-```bash
-aws ssm put-parameter --type SecureString --name /car-repair-shop/billing/mercado-pago-client-id --value '<client id>'
-aws ssm put-parameter --type SecureString --name /car-repair-shop/billing/mercado-pago-client-secret --value '<client secret>'
-aws ssm put-parameter --type SecureString --name /car-repair-shop/billing/mercado-pago-webhook-secret --value '<assinatura secreta do webhook>'
-```
+O ConfigMap fixa `PAYMENT_PROVIDER: "mercado-pago"` e `MERCADO_PAGO_API_URL` com o endereço interno do
+Payment Service (`http://payment-api.car-repair-shop-payment.svc.cluster.local`). As credenciais não
+passam por `tfvars` nem por cópia manual: o `infra-k8s` as gera, e os dois CDs leem os mesmos parâmetros.
 
 ## Testes
 

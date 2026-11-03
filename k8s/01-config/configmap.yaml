@@ -15,8 +15,12 @@ data:
   # One hop: the API Gateway. Without it req.ip is a gateway ENI and every
   # customer shares one budget-decision rate-limit bucket.
   TRUST_PROXY_HOPS: "1"
-  PAYMENT_PROVIDER: "mock"
-  # Test on purpose: only tokens Mercado Pago marks as not live are used, so
-  # this environment can never create a real charge.
+  # Charges through the payment service, the provider that stands in for
+  # Mercado Pago: same contract and same adapter, only the address changes.
+  # Removing MERCADO_PAGO_API_URL points the adapter at Mercado Pago itself.
+  PAYMENT_PROVIDER: "mercado-pago"
+  MERCADO_PAGO_API_URL: "http://payment-api.car-repair-shop-payment.svc.cluster.local"
+  # Test on purpose: only tokens marked as not live are used, so this
+  # environment can never create a real charge.
   MERCADO_PAGO_ENVIRONMENT: "test"
   NOTIFICATION_CHANNEL: "sns"
