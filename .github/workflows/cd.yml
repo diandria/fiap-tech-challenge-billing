@@ -126,12 +126,6 @@ jobs:
             aws sqs get-queue-url --queue-name "car-repair-shop-$1.fifo" --query QueueUrl --output text 2>/dev/null || true
           }
 
-          # The provider the pods will use, read from the same ConfigMap they
-          # get. With the simulated one, the Mercado Pago credentials are
-          # neither required nor written to the cluster.
-          PROVIDER=$(yq '.data.PAYMENT_PROVIDER' k8s/01-config/configmap.yaml)
-          echo "payment provider: $PROVIDER"
-
           DB_HOST=$(db_attribute Endpoint.Address)
           # From RDS itself: a hardcoded value yields an invalid DATABASE_URL
           # and a CrashLoop that does not name its cause.
@@ -139,14 +133,11 @@ jobs:
           DB_NAME=$(db_attribute DBName)
           DB_PASS=$(parameter /car-repair-shop/billing/db/password)
           JWT=$(parameter /car-repair-shop/auth/jwt-secret)
-          MP_CLIENT_ID=""; MP_CLIENT_SECRET=""; MP_WEBHOOK_SECRET=""
-          if [ "$PROVIDER" != "mock" ]; then
-            # This service's credentials at the payment provider. The payment
-            # service's CD reads the same parameters, so both sides agree.
-            MP_CLIENT_ID=$(parameter /car-repair-shop/payment/client-id)
-            MP_CLIENT_SECRET=$(parameter /car-repair-shop/payment/client-secret)
-            MP_WEBHOOK_SECRET=$(parameter /car-repair-shop/payment/webhook-secret)
-          fi
+          # This service's credentials at the payment provider. The payment
+          # service's CD reads the same parameters, so both sides agree.
+          MP_CLIENT_ID=$(parameter /car-repair-shop/payment/client-id)
+          MP_CLIENT_SECRET=$(parameter /car-repair-shop/payment/client-secret)
+          MP_WEBHOOK_SECRET=$(parameter /car-repair-shop/payment/webhook-secret)
           TOPIC=$(aws sns list-topics \
             --query "Topics[?contains(TopicArn, 'car-repair-shop-service-order-events')].TopicArn | [0]" \
             --output text)
@@ -159,9 +150,7 @@ jobs:
 
           # Fail here, not later with a CrashLoop three layers from the cause.
           required="DB_HOST DB_USER DB_NAME DB_PASS JWT TOPIC QUEUE_COMMANDS QUEUE_REPLIES GATEWAY"
-          if [ "$PROVIDER" != "mock" ]; then
-            required="$required MP_CLIENT_ID MP_CLIENT_SECRET MP_WEBHOOK_SECRET"
-          fi
+          required="$required MP_CLIENT_ID MP_CLIENT_SECRET MP_WEBHOOK_SECRET"
           for name in $required; do
             value="${!name}"
             if [ -z "$value" ] || [ "$value" = "None" ]; then
@@ -172,17 +161,13 @@ jobs:
 
           echo "::add-mask::$DB_PASS"
           echo "::add-mask::$JWT"
-          if [ "$PROVIDER" != "mock" ]; then
-            echo "::add-mask::$MP_CLIENT_ID"
-            echo "::add-mask::$MP_CLIENT_SECRET"
-            echo "::add-mask::$MP_WEBHOOK_SECRET"
-          fi
+          echo "::add-mask::$MP_CLIENT_SECRET"
+          echo "::add-mask::$MP_WEBHOOK_SECRET"
 
           echo "gateway=$GATEWAY" >> "$GITHUB_OUTPUT"
           {
             echo "DATABASE_URL=postgresql://$DB_USER:$DB_PASS@$DB_HOST:5432/$DB_NAME?schema=public"
             echo "JWT_SECRET=$JWT"
-            echo "PAYMENT_PROVIDER=$PROVIDER"
             echo "MERCADO_PAGO_CLIENT_ID=$MP_CLIENT_ID"
             echo "MERCADO_PAGO_CLIENT_SECRET=$MP_CLIENT_SECRET"
             echo "MERCADO_PAGO_WEBHOOK_SECRET=$MP_WEBHOOK_SECRET"
@@ -196,27 +181,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Mercado Pago entries only with the real provider: with the
-          # simulated one they stay out, so no half-filled configuration reaches
-          # the pods.
           runtime=(
             --from-literal=SNS_TOPIC_ARN="$SNS_TOPIC_ARN"
             --from-literal=QUEUE_URL_BILLING_COMMANDS="$QUEUE_URL_BILLING_COMMANDS"
             --from-literal=QUEUE_URL_SAGA_REPLIES="$QUEUE_URL_SAGA_REPLIES"
             --from-literal=OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo.observability.svc.cluster.local:4318
+            --from-literal=MERCADO_PAGO_NOTIFICATION_URL="$MERCADO_PAGO_NOTIFICATION_URL"
           )
           secret=(
             --from-literal=DATABASE_URL="$DATABASE_URL"
             --from-literal=JWT_SECRET="$JWT_SECRET"
+            --from-literal=MERCADO_PAGO_CLIENT_ID="$MERCADO_PAGO_CLIENT_ID"
+            --from-literal=MERCADO_PAGO_CLIENT_SECRET="$MERCADO_PAGO_CLIENT_SECRET"
+            --from-literal=MERCADO_PAGO_WEBHOOK_SECRET="$MERCADO_PAGO_WEBHOOK_SECRET"
           )
-          if [ "$PAYMENT_PROVIDER" != "mock" ]; then
-            runtime+=(--from-literal=MERCADO_PAGO_NOTIFICATION_URL="$MERCADO_PAGO_NOTIFICATION_URL")
-            secret+=(
-              --from-literal=MERCADO_PAGO_CLIENT_ID="$MERCADO_PAGO_CLIENT_ID"
-              --from-literal=MERCADO_PAGO_CLIENT_SECRET="$MERCADO_PAGO_CLIENT_SECRET"
-              --from-literal=MERCADO_PAGO_WEBHOOK_SECRET="$MERCADO_PAGO_WEBHOOK_SECRET"
-            )
-          fi
 
           kubectl create configmap billing-runtime -n car-repair-shop-billing "${runtime[@]}" \
             --dry-run=client -o yaml | kubectl apply -f -

@@ -41,11 +41,12 @@ O código segue a mesma Clean Architecture do OS Service, com as dependências a
 |---|---|---|
 | Entidades | `src/entities/` | `Budget` e `Payment`, com as regras de transição de cada um |
 | Casos de uso | `src/use-cases/` | Gerar, decidir e cancelar orçamento; cobrar e confirmar pagamento; publicar o outbox. As portas (`IPaymentGateway`, `IBudgetRepository`, `IOutbox`...) ficam em `ports/` |
-| Adaptadores | `src/adapters/` | Controllers, repositórios Prisma, handler dos comandos, cliente do Mercado Pago, provedor simulado e notificador |
+| Adaptadores | `src/adapters/` | Controllers, repositórios Prisma, handler dos comandos, cliente do provedor de pagamento (contrato do Mercado Pago) e notificador |
 | Frameworks | `src/frameworks/` | Express, Prisma, SQS, OpenTelemetry, Prometheus e a montagem de tudo em `main.ts` |
 
-O Mercado Pago aparece para os casos de uso só como `IPaymentGateway`. O provedor simulado implementa a
-mesma porta, e é por isso que trocar um pelo outro não muda nada além de quem diz "pago".
+O provedor de pagamento aparece para os casos de uso só como `IPaymentGateway`. O adaptador fala o
+contrato do Mercado Pago, e `MERCADO_PAGO_API_URL` diz quem responde: o Mercado Pago ou o Payment Service,
+o simulador desse contrato que o ambiente usa. Trocar um pelo outro não muda nenhum caso de uso.
 
 ## Mensagens
 

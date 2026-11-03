@@ -1,5 +1,6 @@
-# Billing Service on its own: its database and a local SQS. Host ports differ
-# from the OS Service compose, so both can run side by side.
+# Billing Service on its own: its database, a local SQS and the payment
+# service it charges through, built from ../fiap-tech-challenge-payment. Host
+# ports differ from the OS Service compose, so both can run side by side.
 services:
   postgres:
     image: postgres:16-alpine
@@ -44,10 +45,18 @@ services:
       DATABASE_URL: "postgresql://billing:billing@postgres:5432/billing?schema=public"
       JWT_SECRET: "dev-secret-change-in-prod"
       OTEL_SERVICE_NAME: "billing-service"
-      # Local runs never charge anyone: the simulated provider stands in for Mercado Pago.
-      PAYMENT_PROVIDER: "mock"
+      # Local runs never charge anyone: the payment service stands in for
+      # Mercado Pago, with the credentials and webhook secret set below.
+      PAYMENT_PROVIDER: "mercado-pago"
+      MERCADO_PAGO_API_URL: "http://payment:3000"
+      MERCADO_PAGO_CLIENT_ID: "billing-local"
+      MERCADO_PAGO_CLIENT_SECRET: "local-client-secret"
+      MERCADO_PAGO_WEBHOOK_SECRET: "local-webhook-secret"
+      MERCADO_PAGO_NOTIFICATION_URL: "http://app:3000/payments/notifications"
     depends_on:
       postgres:
+        condition: service_healthy
+      payment:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -56,6 +65,22 @@ services:
       timeout: 5s
       start_period: 15s
       retries: 3
+
+  payment:
+    build: ../fiap-tech-challenge-payment
+    ports:
+      - "3003:3000"
+    environment:
+      PORT: "3000"
+      CLIENT_ID: "billing-local"
+      CLIENT_SECRET: "local-client-secret"
+      WEBHOOK_SECRET: "local-webhook-secret"
+      CHECKOUT_BASE_URL: "http://localhost:3003"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
 volumes:
   billing-postgres-data:
