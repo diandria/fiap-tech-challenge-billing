@@ -18,7 +18,19 @@ describe('readMercadoPagoConfig', () => {
       environment: 'test',
       notificationUrl: 'https://gateway.example.com/payments/notifications',
       webhookSecret: 'webhook-secret',
+      apiUrl: 'https://api.mercadopago.com',
     });
+  });
+
+  // The provider's address: Mercado Pago itself unless configured, for example
+  // the payment service that stands in for it inside the cluster.
+  it('reads the provider address, without a trailing slash', () => {
+    expect(readMercadoPagoConfig({ ...complete, MERCADO_PAGO_API_URL: 'http://payment-api.car-repair-shop-payment.svc.cluster.local/' })?.apiUrl)
+      .toBe('http://payment-api.car-repair-shop-payment.svc.cluster.local');
+  });
+
+  it('refuses a provider address that is not an http(s) url', () => {
+    expect(() => readMercadoPagoConfig({ ...complete, MERCADO_PAGO_API_URL: 'payment-api:3000' })).toThrow('MERCADO_PAGO_API_URL');
   });
 
   // Test is the default so that forgetting the variable can never mean real charges.

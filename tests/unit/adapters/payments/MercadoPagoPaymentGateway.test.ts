@@ -126,4 +126,22 @@ describe('MercadoPagoPaymentGateway', () => {
     expect(failures.record).toHaveBeenCalledWith('mercado_pago', 'find_payment');
     expect(fetchFn).not.toHaveBeenCalled();
   });
+
+  it('calls the configured provider address instead of Mercado Pago', async () => {
+    const fetchFn = jest.fn()
+      .mockResolvedValueOnce(json({ id: 'pref-1', init_point: 'http://gateway.example/checkout/pref-1' }))
+      .mockResolvedValueOnce(json(payment('approved')));
+    const tokens = { accessToken: jest.fn().mockResolvedValue('provider-token') };
+    const gateway = new MercadoPagoPaymentGateway(tokens, { record: jest.fn() }, { warn: jest.fn(), error: jest.fn() }, {
+      notificationUrl, fetchFn, apiUrl: 'http://payment-api.local',
+    });
+
+    await gateway.createCheckout({ serviceOrderId: 'os-1', description: 'Service order os-1', amount: 191 });
+    await gateway.findPayment('1234567890');
+
+    expect(fetchFn.mock.calls.map(([url]) => url)).toEqual([
+      'http://payment-api.local/checkout/preferences',
+      'http://payment-api.local/v1/payments/1234567890',
+    ]);
+  });
 });

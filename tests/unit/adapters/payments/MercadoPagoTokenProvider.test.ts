@@ -82,4 +82,12 @@ describe('MercadoPagoTokenProvider', () => {
 
     await expect(new MercadoPagoTokenProvider(credentials, 'test', { fetchFn }).accessToken()).rejects.toThrow('401');
   });
+
+  it('asks the configured provider address for the token', async () => {
+    const fetchFn = jest.fn().mockResolvedValue(tokenResponse('token-1', 21600));
+
+    await new MercadoPagoTokenProvider(credentials, 'test', { fetchFn, apiUrl: 'http://payment-api.local' }).accessToken();
+
+    expect(fetchFn.mock.calls[0][0]).toBe('http://payment-api.local/oauth/token');
+  });
 });

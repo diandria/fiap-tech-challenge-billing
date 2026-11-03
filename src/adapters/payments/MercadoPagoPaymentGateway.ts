@@ -7,8 +7,8 @@ import {
 import { IIntegrationFailures } from '../../use-cases/ports/IIntegrationFailures';
 import { ILogger } from '../../use-cases/ports/ILogger';
 import { toPaymentStatus } from './mercadoPagoStatus';
+import { MERCADO_PAGO_API_URL } from './mercadoPagoApi';
 
-const API_URL = 'https://api.mercadopago.com';
 const DEFAULT_TIMEOUT_MS = 5_000;
 
 export interface AccessTokenSource {
@@ -18,6 +18,8 @@ export interface AccessTokenSource {
 export interface MercadoPagoOptions {
   /** Where Mercado Pago sends payment notifications; the public webhook route of this service. */
   notificationUrl: string;
+  /** The provider's base address; Mercado Pago unless set. */
+  apiUrl?: string;
   fetchFn?: typeof fetch;
   timeoutMs?: number;
 }
@@ -40,6 +42,7 @@ interface PaymentResponse {
  * not justify the SDK, and a reader can follow each request end to end here.
  */
 export class MercadoPagoPaymentGateway implements IPaymentGateway {
+  private readonly apiUrl: string;
   private readonly fetchFn: typeof fetch;
   private readonly timeoutMs: number;
 
@@ -49,6 +52,7 @@ export class MercadoPagoPaymentGateway implements IPaymentGateway {
     private readonly logger: ILogger,
     private readonly options: MercadoPagoOptions,
   ) {
+    this.apiUrl = options.apiUrl ?? MERCADO_PAGO_API_URL;
     this.fetchFn = options.fetchFn ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -107,7 +111,7 @@ export class MercadoPagoPaymentGateway implements IPaymentGateway {
   ): Promise<T | null> {
     try {
       const token = await this.tokens.accessToken();
-      const response = await this.fetchFn(`${API_URL}${path}`, {
+      const response = await this.fetchFn(`${this.apiUrl}${path}`, {
         ...init,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(this.timeoutMs),

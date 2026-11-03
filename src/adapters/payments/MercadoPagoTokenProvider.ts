@@ -1,3 +1,5 @@
+import { MERCADO_PAGO_API_URL } from './mercadoPagoApi';
+
 export interface MercadoPagoCredentials {
   clientId: string;
   clientSecret: string;
@@ -15,7 +17,6 @@ interface TokenResponse {
   live_mode?: boolean;
 }
 
-const TOKEN_URL = 'https://api.mercadopago.com/oauth/token';
 const RENEW_BEFORE_EXPIRY_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 5_000;
 
@@ -25,12 +26,15 @@ const REQUEST_TIMEOUT_MS = 5_000;
  * would live in a secret forever; this one is short-lived and renewed alone.
  */
 export interface TokenProviderOptions {
+  /** The provider's base address; Mercado Pago unless set. */
+  apiUrl?: string;
   fetchFn?: typeof fetch;
   now?: () => Date;
 }
 
 export class MercadoPagoTokenProvider {
   private cached?: { token: string; expiresAt: number };
+  private readonly tokenUrl: string;
   private readonly fetchFn: typeof fetch;
   private readonly now: () => Date;
 
@@ -39,6 +43,7 @@ export class MercadoPagoTokenProvider {
     private readonly environment: MercadoPagoEnvironment,
     options: TokenProviderOptions = {},
   ) {
+    this.tokenUrl = `${options.apiUrl ?? MERCADO_PAGO_API_URL}/oauth/token`;
     this.fetchFn = options.fetchFn ?? fetch;
     this.now = options.now ?? (() => new Date());
   }
@@ -49,7 +54,7 @@ export class MercadoPagoTokenProvider {
       return this.cached.token;
     }
 
-    const response = await this.fetchFn(TOKEN_URL, {
+    const response = await this.fetchFn(this.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
