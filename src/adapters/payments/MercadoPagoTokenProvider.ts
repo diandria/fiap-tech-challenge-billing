@@ -24,15 +24,24 @@ const REQUEST_TIMEOUT_MS = 5_000;
  * until shortly before it expires. A token copied by hand from the panel
  * would live in a secret forever; this one is short-lived and renewed alone.
  */
+export interface TokenProviderOptions {
+  fetchFn?: typeof fetch;
+  now?: () => Date;
+}
+
 export class MercadoPagoTokenProvider {
   private cached?: { token: string; expiresAt: number };
+  private readonly fetchFn: typeof fetch;
+  private readonly now: () => Date;
 
   constructor(
     private readonly credentials: MercadoPagoCredentials,
     private readonly environment: MercadoPagoEnvironment,
-    private readonly fetchFn: typeof fetch = fetch,
-    private readonly now: () => Date = () => new Date(),
-  ) {}
+    options: TokenProviderOptions = {},
+  ) {
+    this.fetchFn = options.fetchFn ?? fetch;
+    this.now = options.now ?? (() => new Date());
+  }
 
   /** A cached token, renewed when less than a minute of validity is left. */
   async accessToken(): Promise<string> {
