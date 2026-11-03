@@ -36,8 +36,6 @@ import { PinoLoggerAdapter } from './adapters/logging/PinoLoggerAdapter';
 import { createPaymentProvider, PaymentProvider } from './frameworks/payments/paymentGatewayFactory';
 import { createCustomerNotifier } from './frameworks/notifications/notifierFactory';
 import { ICustomerNotifier } from './use-cases/ports/ICustomerNotifier';
-import { mockPaymentRoutes } from './frameworks/http/routes/mockPaymentRoutes';
-import { MockPaymentController } from './adapters/controllers/MockPaymentController';
 
 const PORT = process.env.PORT ?? 3000;
 
@@ -45,8 +43,8 @@ interface Messaging {
   stop(): Promise<void>;
 }
 
-/** The webhook for the real provider; the simulated payment route for the mock, and never both. */
-function paymentRoutes(provider: PaymentProvider, getBudget: GetBudgetUseCase, unitOfWork: IUnitOfWork) {
+/** The provider's signed payment notifications. */
+function paymentRoutes(provider: PaymentProvider, unitOfWork: IUnitOfWork) {
   const confirmPayment = new ConfirmPaymentUseCase(
     unitOfWork,
     new PostgresBudgetRepository(prisma),
@@ -55,10 +53,6 @@ function paymentRoutes(provider: PaymentProvider, getBudget: GetBudgetUseCase, u
     new PinoLoggerAdapter(logger),
   );
 
-  if (provider.kind === 'mock') {
-    logger.warn('PAYMENT_PROVIDER=mock: payments are simulated and no charge reaches Mercado Pago');
-    return mockPaymentRoutes(new MockPaymentController(getBudget, confirmPayment, provider.gateway));
-  }
   return paymentNotificationRoutes(new PaymentNotificationController(confirmPayment), provider.webhookSecret);
 }
 
@@ -123,7 +117,7 @@ async function main(): Promise<void> {
   const getBudget = new GetBudgetUseCase(budgets, payments);
   const routes: AppRoutes = {
     budgets: budgetRoutes(new BudgetController(getBudget, new DecideBudgetUseCase(unitOfWork))),
-    payments: paymentProvider && paymentRoutes(paymentProvider, getBudget, unitOfWork),
+    payments: paymentProvider && paymentRoutes(paymentProvider, unitOfWork),
   };
 
   const app = createApp(databaseReadiness(prisma), routes);
