@@ -75,6 +75,7 @@ Billing cria a preferência com o total do orçamento e guarda o link de pagamen
 | `MERCADO_PAGO_NOTIFICATION_URL` | Endereço público de `POST /payments/notifications`, chamado pelo Mercado Pago |
 | `MERCADO_PAGO_WEBHOOK_SECRET` | Segredo do webhook da aplicação, usado para conferir a assinatura de cada notificação |
 | `MERCADO_PAGO_ENVIRONMENT` | `test` (padrão) ou `production`. Qualquer outro valor impede o serviço de subir |
+| `MERCADO_PAGO_API_URL` | Endereço da API do provedor. Vazio usa o Mercado Pago (`https://api.mercadopago.com`); aponta para outro serviço que implemente o mesmo contrato |
 
 **Em `test`, nenhuma cobrança real é possível.** O pedido de token vai com `test_token: "true"`, e o
 Billing só usa o token se a resposta do Mercado Pago vier com `live_mode: false`. Um token marcado como

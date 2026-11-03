@@ -14,7 +14,7 @@ describe('MercadoPagoTokenProvider', () => {
   it('requests a token with the client credentials grant', async () => {
     const fetchFn = jest.fn().mockResolvedValue(tokenResponse('token-1', 21600));
 
-    const token = await new MercadoPagoTokenProvider(credentials, 'test', fetchFn).accessToken();
+    const token = await new MercadoPagoTokenProvider(credentials, 'test', { fetchFn }).accessToken();
 
     expect(token).toBe('token-1');
     const [url, init] = fetchFn.mock.calls[0];
@@ -37,14 +37,14 @@ describe('MercadoPagoTokenProvider', () => {
   ])('refuses a token %s in the test environment', async (_case, mode) => {
     const fetchFn = jest.fn().mockResolvedValue(tokenResponse('live-token', 21600, mode));
 
-    await expect(new MercadoPagoTokenProvider(credentials, 'test', fetchFn).accessToken()).rejects.toThrow('live');
+    await expect(new MercadoPagoTokenProvider(credentials, 'test', { fetchFn }).accessToken()).rejects.toThrow('live');
   });
 
   it('does not keep a refused token, so the next charge asks again', async () => {
     const fetchFn = jest.fn()
       .mockResolvedValueOnce(tokenResponse('live-token', 21600, { live_mode: true }))
       .mockResolvedValueOnce(tokenResponse('test-token', 21600, { live_mode: false }));
-    const provider = new MercadoPagoTokenProvider(credentials, 'test', fetchFn);
+    const provider = new MercadoPagoTokenProvider(credentials, 'test', { fetchFn });
 
     await expect(provider.accessToken()).rejects.toThrow('live');
 
@@ -54,7 +54,7 @@ describe('MercadoPagoTokenProvider', () => {
   it('uses a live token in the production environment', async () => {
     const fetchFn = jest.fn().mockResolvedValue(tokenResponse('live-token', 21600, { live_mode: true }));
 
-    const token = await new MercadoPagoTokenProvider(credentials, 'production', fetchFn).accessToken();
+    const token = await new MercadoPagoTokenProvider(credentials, 'production', { fetchFn }).accessToken();
 
     expect(token).toBe('live-token');
     expect(JSON.parse(fetchFn.mock.calls[0][1].body)).toMatchObject({ test_token: 'false' });
@@ -65,7 +65,7 @@ describe('MercadoPagoTokenProvider', () => {
     const fetchFn = jest.fn()
       .mockResolvedValueOnce(tokenResponse('token-1', 3600))
       .mockResolvedValueOnce(tokenResponse('token-2', 3600));
-    const provider = new MercadoPagoTokenProvider(credentials, 'test', fetchFn, () => now);
+    const provider = new MercadoPagoTokenProvider(credentials, 'test', { fetchFn, now: () => now });
 
     const first = await provider.accessToken();
     now = new Date('2026-10-31T10:30:00.000Z');
@@ -80,6 +80,14 @@ describe('MercadoPagoTokenProvider', () => {
   it('throws when the provider refuses the credentials', async () => {
     const fetchFn = jest.fn().mockResolvedValue(new Response('{"error":"invalid_client"}', { status: 401 }));
 
-    await expect(new MercadoPagoTokenProvider(credentials, 'test', fetchFn).accessToken()).rejects.toThrow('401');
+    await expect(new MercadoPagoTokenProvider(credentials, 'test', { fetchFn }).accessToken()).rejects.toThrow('401');
+  });
+
+  it('asks the configured provider address for the token', async () => {
+    const fetchFn = jest.fn().mockResolvedValue(tokenResponse('token-1', 21600));
+
+    await new MercadoPagoTokenProvider(credentials, 'test', { fetchFn, apiUrl: 'http://payment-api.local' }).accessToken();
+
+    expect(fetchFn.mock.calls[0][0]).toBe('http://payment-api.local/oauth/token');
   });
 });

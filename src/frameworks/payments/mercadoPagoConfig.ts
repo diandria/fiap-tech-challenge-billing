@@ -1,4 +1,5 @@
 import { MercadoPagoCredentials, MercadoPagoEnvironment } from '../../adapters/payments/MercadoPagoTokenProvider';
+import { MERCADO_PAGO_API_URL } from '../../adapters/payments/mercadoPagoApi';
 
 export interface MercadoPagoConfig {
   credentials: MercadoPagoCredentials;
@@ -6,6 +7,8 @@ export interface MercadoPagoConfig {
   notificationUrl: string;
   /** Signs every notification; shown in the application's webhook settings. */
   webhookSecret: string;
+  /** Where the provider's API answers: Mercado Pago, or a service with the same contract. */
+  apiUrl: string;
 }
 
 const VARIABLES = [
@@ -35,7 +38,23 @@ export function readMercadoPagoConfig(env: Record<string, string | undefined> = 
     environment: readEnvironment(env.MERCADO_PAGO_ENVIRONMENT),
     notificationUrl: env.MERCADO_PAGO_NOTIFICATION_URL as string,
     webhookSecret: env.MERCADO_PAGO_WEBHOOK_SECRET as string,
+    apiUrl: readApiUrl(env.MERCADO_PAGO_API_URL),
   };
+}
+
+/** Optional: unset means Mercado Pago itself. */
+function readApiUrl(value: string | undefined): string {
+  if (value === undefined) return MERCADO_PAGO_API_URL;
+  let protocol: string;
+  try {
+    protocol = new URL(value).protocol;
+  } catch {
+    protocol = '';
+  }
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    throw new Error(`MERCADO_PAGO_API_URL must be an http(s) url, got "${value}"`);
+  }
+  return value.replace(/\/+$/, '');
 }
 
 /** Test unless production is set on purpose: a forgotten variable never means real charges. */
