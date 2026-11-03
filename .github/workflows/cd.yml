@@ -106,9 +106,9 @@ jobs:
           echo "image=$REPO" >> "$GITHUB_OUTPUT"
 
       # Everything comes from AWS, nothing from GitHub: the database from this
-      # repository's Terraform, the queues and the gateway from infra-k8s, the
-      # JWT secret from the functions' Terraform and the Mercado Pago
-      # credentials from parameters registered by hand.
+      # repository's Terraform, the queues, the gateway and the payment
+      # credentials from infra-k8s, and the JWT secret from the functions'
+      # Terraform.
       - name: Read configuration from SSM and AWS
         id: config
         run: |
@@ -141,17 +141,19 @@ jobs:
           JWT=$(parameter /car-repair-shop/auth/jwt-secret)
           MP_CLIENT_ID=""; MP_CLIENT_SECRET=""; MP_WEBHOOK_SECRET=""
           if [ "$PROVIDER" != "mock" ]; then
-            MP_CLIENT_ID=$(parameter /car-repair-shop/billing/mercado-pago-client-id)
-            MP_CLIENT_SECRET=$(parameter /car-repair-shop/billing/mercado-pago-client-secret)
-            MP_WEBHOOK_SECRET=$(parameter /car-repair-shop/billing/mercado-pago-webhook-secret)
+            # This service's credentials at the payment provider. The payment
+            # service's CD reads the same parameters, so both sides agree.
+            MP_CLIENT_ID=$(parameter /car-repair-shop/payment/client-id)
+            MP_CLIENT_SECRET=$(parameter /car-repair-shop/payment/client-secret)
+            MP_WEBHOOK_SECRET=$(parameter /car-repair-shop/payment/webhook-secret)
           fi
           TOPIC=$(aws sns list-topics \
             --query "Topics[?contains(TopicArn, 'car-repair-shop-service-order-events')].TopicArn | [0]" \
             --output text)
           QUEUE_COMMANDS=$(queue_url billing-commands)
           QUEUE_REPLIES=$(queue_url saga-replies)
-          # Mercado Pago calls the webhook through the gateway, whose id changes
-          # on every recreation.
+          # The payment provider calls the webhook through the gateway, whose id
+          # changes on every recreation.
           GATEWAY=$(aws apigatewayv2 get-apis \
             --query "Items[?Name=='car-repair-shop'].ApiEndpoint | [0]" --output text)
 
