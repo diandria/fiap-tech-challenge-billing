@@ -214,6 +214,11 @@ o PR quando o quality gate reprova (`sonar.qualitygate.wait`) ou quando o segred
    a revisão anterior e termina com erro.
 6. Verificação de `/ready` dentro de um pod, que confirma também o acesso ao banco.
 
+O ambiente roda no AWS Academy e só existe durante uma sessão do lab. Com ele desligado, o CD de um merge
+termina vermelho sem criar nada: indica ambiente desligado, não código quebrado. As restrições da conta e como
+reimplantar estão na seção [Limitação do AWS Academy](https://github.com/diandria/fiap-tech-challenge#limitação-do-aws-academy)
+do README do OS Service.
+
 De onde vem cada valor:
 
 | Valor | Origem |
